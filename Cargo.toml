@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["kper <kevp.per@gmail.com>"]
 
 [dependencies]
-raft ={ git="https://github.com/paenko/paenkodb"} 
+raft ={ git="https://github.com/paenko/raft-rs"} 
 env_logger = "*"
 bincode ="0.6"
 capnp = "0.6"
