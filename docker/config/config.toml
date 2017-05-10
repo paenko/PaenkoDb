@@ -1,0 +1,21 @@
+[server]
+node_id = 1
+node_address= "0.0.0.0:9000"
+community_string="test"
+binding_addr="0.0.0.0:3000"
+
+[security]
+username = "test"
+password = "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+
+[[peers]]
+node_id = 2
+node_address = "node2:9000"
+
+[[logs]]
+path = "/data/l1"
+lid = "3d30aa56-98b2-4891-aec5-847cee6e1703"
+
+[[logs]]
+path ="/data/l2"
+lid ="2275a90d-5884-4498-9ba5-91122e2fe875"
