@@ -22,7 +22,9 @@ addons:
     sources:
       - ubuntu-toolchain-r-test
     packages:
-        # Needed for `travis-cargo coveralls --no-sudo`
+      - gcc-4.8
+      - g++-4.8
+       # Needed for `travis-cargo coveralls --no-sudo`
       - libcurl4-openssl-dev
       - libelf-dev
       - libdw-dev
