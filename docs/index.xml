@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>PaenkoDb</title>
+    <link>https://paenko.github.io/PaenkoDb/</link>
+    <description>Recent content on PaenkoDb</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-US</language>
+    <lastBuildDate>Sat, 01 Oct 2016 10:37:33 +0100</lastBuildDate>
+    <atom:link href="https://paenko.github.io/PaenkoDb/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>team</title>
+      <link>https://paenko.github.io/PaenkoDb/team/</link>
+      <pubDate>Sat, 01 Oct 2016 10:37:33 +0100</pubDate>
+      
+      <guid>https://paenko.github.io/PaenkoDb/team/</guid>
+      <description>&lt;p&gt;We are two students of HTL Ottakring in Vienna.&lt;/p&gt;
+
+&lt;p&gt;Kevin Per &lt;a href=&#34;mailto:k.per98@htl-ottakring.ac.at&#34;&gt;k.per98@htl-ottakring.ac.at&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;Florian Hanko &lt;a href=&#34;mailto:f.hanko98@htl-ottakring.ac.at&#34;&gt;f.hanko98@htl-ottakring.ac.at&lt;/a&gt;&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>about</title>
+      <link>https://paenko.github.io/PaenkoDb/about/</link>
+      <pubDate>Sat, 01 Oct 2016 10:02:13 +0100</pubDate>
+      
+      <guid>https://paenko.github.io/PaenkoDb/about/</guid>
+      <description>&lt;p&gt;test&lt;/p&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

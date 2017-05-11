@@ -1,0 +1,22 @@
+.main .container .content h1,h2{
+  font-weight:bold;
+}
+.main .container .content h2{
+  padding-top:35px;
+}
+
+.main .container .content td{
+  padding-left:15px;
+}
+
+
+.content{
+  position:relative;
+}
+
+.logo img{
+  height:100px;
+  position:absolute;
+  right:0px;
+  top:-35px;
+}
