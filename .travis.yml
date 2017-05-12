@@ -29,6 +29,19 @@ addons:
       - libelf-dev
       - libdw-dev
 
+install:
+    - git clone https://github.com/sandstorm-io/capnproto.git
+    - cd capnproto/c++
+    # Use master to avoid autotools breakage (13 May 2016)
+    - git checkout release-0.5.3
+    - ./setup-autotools.sh
+    - autoreconf -i
+    - ./configure --disable-shared
+    - make -j5
+    - export PATH="$PATH:$(pwd)"
+    - export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(pwd)"
+    -  cd ../..
+
 # Load `travis-cargo`
 before_script:
     - pip install 'travis-cargo' --user
