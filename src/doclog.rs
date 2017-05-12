@@ -50,19 +50,20 @@ impl DocLog {
             logid: lid,
         };
 
-        d.create_dir().expect(&format!("Cannot find volume {}. You might need to create it",prefix));
+        d.create_dir()
+            .expect(&format!("Cannot find volume {}. You might need to create it", prefix));
         d.set_current_term(Term::from(0)).unwrap();
         d.restore_snapshot();
 
         d
     }
-    
+
     /// Creates the directories if they do not exist
-    fn create_dir(&self) -> ::std::io::Result<()>{
+    fn create_dir(&self) -> ::std::io::Result<()> {
         ::std::fs::create_dir_all(&self.prefix)
     }
 
-    /// Returns the directory which information will be saved to 
+    /// Returns the directory which information will be saved to
     pub fn get_volume(&self) -> String {
         self.prefix.clone()
     }
@@ -213,6 +214,7 @@ impl Log for DocLog {
 
 #[cfg(test)]
 mod test {
+    extern crate tempdir;
 
     use super::*;
     use raft::LogIndex;
@@ -223,84 +225,93 @@ mod test {
     use bincode::SizeLimit;
     use bincode::rustc_serialize::{encode_into, encode, decode, decode_from};
     use std::io::prelude::*;
-    use std::fs::OpenOptions;
-    use std::io::SeekFrom;
     use uuid::Uuid;
     use raft::LogId;
+    use self::tempdir::TempDir;
 
     lazy_static!{
         static ref lid : LogId = LogId::from("3d30aa56-98b2-4891-aec5-847cee6e1703").unwrap();
     }
 
+
     #[test]
     fn test_current_term() {
-        let mut store = DocLog::new("/tmp", *lid);
-        assert_eq!(Term::from(0), store.current_term().unwrap());
-        store.set_voted_for(Some(ServerId::from(0))).unwrap();
-        store.set_current_term(Term::from(42)).unwrap();
-        assert_eq!(None, store.voted_for().unwrap());
-        assert_eq!(Term::from(42), store.current_term().unwrap());
-        store.inc_current_term().unwrap();
-        assert_eq!(Term::from(43), store.current_term().unwrap());
+        if let Ok(dir) = TempDir::new("tmp") {
+            let mut store = DocLog::new("tmp", *lid);
+            assert_eq!(Term::from(0), store.current_term().unwrap());
+            store.set_voted_for(Some(ServerId::from(0))).unwrap();
+            store.set_current_term(Term::from(42)).unwrap();
+            assert_eq!(None, store.voted_for().unwrap());
+            assert_eq!(Term::from(42), store.current_term().unwrap());
+            store.inc_current_term().unwrap();
+            assert_eq!(Term::from(43), store.current_term().unwrap());
+            dir.close().unwrap();
+        }
     }
 
     #[test]
     fn test_voted_for() {
-        let mut store = DocLog::new("/tmp", *lid);
-        assert_eq!(None, store.voted_for().unwrap());
-        let id = ServerId::from(0);
-        store.set_voted_for(Some(id)).unwrap();
-        assert_eq!(Some(id), store.voted_for().unwrap());
+        if let Ok(dir) = TempDir::new("tmp") {
+            let mut store = DocLog::new("tmp", *lid);
+            assert_eq!(None, store.voted_for().unwrap());
+            let id = ServerId::from(0);
+            store.set_voted_for(Some(id)).unwrap();
+            assert_eq!(Some(id), store.voted_for().unwrap());
+            dir.close().unwrap();
+        }
     }
 
     #[test]
     fn test_append_entries() {
-        let mut store = DocLog::new("/tmp", *lid);
-        assert_eq!(LogIndex::from(0), store.latest_log_index().unwrap());
-        assert_eq!(Term::from(0), store.latest_log_term().unwrap());
+        if let Ok(dir) = TempDir::new("tmp") {
+            let mut store = DocLog::new("tmp", *lid);
+            assert_eq!(LogIndex::from(0), store.latest_log_index().unwrap());
+            assert_eq!(Term::from(0), store.latest_log_term().unwrap());
 
-        // [0.1, 0.2, 0.3, 1.4]
-        store.append_entries(LogIndex::from(1),
-                            &[(Term::from(0), &[1]),
-                              (Term::from(0), &[2]),
-                              (Term::from(0), &[3]),
-                              (Term::from(1), &[4])])
-            .unwrap();
-        assert_eq!(LogIndex::from(4), store.latest_log_index().unwrap());
-        assert_eq!(Term::from(1), store.latest_log_term().unwrap());
-        assert_eq!((Term::from(0), &*vec![1u8]),
-                   store.entry(LogIndex::from(1)).unwrap());
-        assert_eq!((Term::from(0), &*vec![2u8]),
-                   store.entry(LogIndex::from(2)).unwrap());
-        assert_eq!((Term::from(0), &*vec![3u8]),
-                   store.entry(LogIndex::from(3)).unwrap());
-        assert_eq!((Term::from(1), &*vec![4u8]),
-                   store.entry(LogIndex::from(4)).unwrap());
+            // [0.1, 0.2, 0.3, 1.4]
+            store.append_entries(LogIndex::from(1),
+                                &[(Term::from(0), &[1]),
+                                  (Term::from(0), &[2]),
+                                  (Term::from(0), &[3]),
+                                  (Term::from(1), &[4])])
+                .unwrap();
+            assert_eq!(LogIndex::from(4), store.latest_log_index().unwrap());
+            assert_eq!(Term::from(1), store.latest_log_term().unwrap());
+            assert_eq!((Term::from(0), &*vec![1u8]),
+                       store.entry(LogIndex::from(1)).unwrap());
+            assert_eq!((Term::from(0), &*vec![2u8]),
+                       store.entry(LogIndex::from(2)).unwrap());
+            assert_eq!((Term::from(0), &*vec![3u8]),
+                       store.entry(LogIndex::from(3)).unwrap());
+            assert_eq!((Term::from(1), &*vec![4u8]),
+                       store.entry(LogIndex::from(4)).unwrap());
 
-        // [0.1, 0.2, 0.3]
-        store.append_entries(LogIndex::from(4), &[]).unwrap();
-        assert_eq!(LogIndex::from(3), store.latest_log_index().unwrap());
-        assert_eq!(Term::from(0), store.latest_log_term().unwrap());
-        assert_eq!((Term::from(0), &*vec![1u8]),
-                   store.entry(LogIndex::from(1)).unwrap());
-        assert_eq!((Term::from(0), &*vec![2u8]),
-                   store.entry(LogIndex::from(2)).unwrap());
-        assert_eq!((Term::from(0), &*vec![3u8]),
-                   store.entry(LogIndex::from(3)).unwrap());
+            // [0.1, 0.2, 0.3]
+            store.append_entries(LogIndex::from(4), &[]).unwrap();
+            assert_eq!(LogIndex::from(3), store.latest_log_index().unwrap());
+            assert_eq!(Term::from(0), store.latest_log_term().unwrap());
+            assert_eq!((Term::from(0), &*vec![1u8]),
+                       store.entry(LogIndex::from(1)).unwrap());
+            assert_eq!((Term::from(0), &*vec![2u8]),
+                       store.entry(LogIndex::from(2)).unwrap());
+            assert_eq!((Term::from(0), &*vec![3u8]),
+                       store.entry(LogIndex::from(3)).unwrap());
 
-        // [0.1, 0.2, 2.3, 3.4]
-        store.append_entries(LogIndex::from(3),
-                            &[(Term::from(2), &[3]), (Term::from(3), &[4])])
-            .unwrap();
-        assert_eq!(LogIndex::from(4), store.latest_log_index().unwrap());
-        assert_eq!(Term::from(3), store.latest_log_term().unwrap());
-        assert_eq!((Term::from(0), &*vec![1u8]),
-                   store.entry(LogIndex::from(1)).unwrap());
-        assert_eq!((Term::from(0), &*vec![2u8]),
-                   store.entry(LogIndex::from(2)).unwrap());
-        assert_eq!((Term::from(2), &*vec![3u8]),
-                   store.entry(LogIndex::from(3)).unwrap());
-        assert_eq!((Term::from(3), &*vec![4u8]),
-                   store.entry(LogIndex::from(4)).unwrap());
+            // [0.1, 0.2, 2.3, 3.4]
+            store.append_entries(LogIndex::from(3),
+                                &[(Term::from(2), &[3]), (Term::from(3), &[4])])
+                .unwrap();
+            assert_eq!(LogIndex::from(4), store.latest_log_index().unwrap());
+            assert_eq!(Term::from(3), store.latest_log_term().unwrap());
+            assert_eq!((Term::from(0), &*vec![1u8]),
+                       store.entry(LogIndex::from(1)).unwrap());
+            assert_eq!((Term::from(0), &*vec![2u8]),
+                       store.entry(LogIndex::from(2)).unwrap());
+            assert_eq!((Term::from(2), &*vec![3u8]),
+                       store.entry(LogIndex::from(3)).unwrap());
+            assert_eq!((Term::from(3), &*vec![4u8]),
+                       store.entry(LogIndex::from(4)).unwrap());
+            dir.close().unwrap();
+        }
     }
 }
