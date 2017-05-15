@@ -4,8 +4,7 @@ version = "0.2.0"
 authors = ["kper <kevp.per@gmail.com>"]
 
 [dependencies]
-#raft ={ path="../raft-rs", branch="dev"}
-raft ={ git="https://github.com/paenko/raft-rs", branch="master"}
+raft ={ git="https://github.com/paenko/raft-rs", branch="dev"}
 env_logger = "*"
 bincode ="0.6"
 capnp = "0.6"
