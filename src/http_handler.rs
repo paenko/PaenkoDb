@@ -34,7 +34,7 @@ use login::Login;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use rustc_serialize::base64::{ToBase64, FromBase64, STANDARD};
+use base64::{encode, decode};
 use serde_json;
 use serde_json::to_string as to_json;
 
@@ -338,7 +338,7 @@ pub fn init(binding_addr: SocketAddr,
             Ok(document) => {
                 let http_doc = http_Response {
                     version: document.version,
-                    payload: document.payload.as_slice().to_base64(STANDARD),
+                    payload: encode(document.payload.as_slice()),
                 };
 
                 let encoded = itry!(to_json(&http_doc), "Cannot encode document to json");
@@ -363,7 +363,7 @@ pub fn init(binding_addr: SocketAddr,
                 _ => panic!("Unexpected payload type"),
             };
 
-            str_payload.from_base64().expect("Payload is not base64")
+            decode(str_payload).expect("Payload is not base64")
         };
 
         let session = iexpect!(try!(req.session().get::<Login>()),
@@ -409,7 +409,7 @@ pub fn init(binding_addr: SocketAddr,
                 _ => panic!("Unexpected payload type"),
             };
 
-            str_payload.from_base64().expect("Payload is not base64")
+            decode(str_payload).expect("Payload is not base64")
         };
 
         let ref session = iexpect!(try!(req.session().get::<Login>()));
@@ -540,7 +540,7 @@ pub fn init(binding_addr: SocketAddr,
                 _ => panic!("Unexpected payload type"),
             };
 
-            itry!(str_payload.from_base64(),
+            itry!(decode(str_payload),
                   (status::BadRequest, "Payload is not base64"))
         };
 
@@ -551,7 +551,7 @@ pub fn init(binding_addr: SocketAddr,
 
         let session = TransactionId::new();
 
-        let bytes = itry!(payload.from_base64(),
+        let bytes = itry!(decode(&payload),
                           (status::BadRequest, "Payload is not base64"));
 
 
@@ -588,7 +588,7 @@ pub fn init(binding_addr: SocketAddr,
                 _ => panic!("Unexpected payload type"),
             };
 
-            itry!(str_payload.from_base64(),
+            itry!(decode(&str_payload),
                   (status::BadRequest, "Payload is not base64"))
         };
 
