@@ -10,7 +10,7 @@ use iron_sessionstorage::SessionStorage;
 use iron_sessionstorage::backends::SignedCookieBackend;
 
 use uuid::Uuid;
-use std::net::{SocketAddr,  SocketAddrV4};
+use std::net::{SocketAddr, SocketAddrV4};
 
 use document::*;
 use handler::Handler;
@@ -23,8 +23,10 @@ use raft::ServerId;
 use raft::TransactionId;
 use raft::state::{LeaderState, CandidateState, FollowerState};
 use raft::auth::Auth;
-use raft::auth::sha256::Sha256Auth;
+use raft::auth::multi::MultiAuth;
 use raft::auth::credentials::SingleCredentials;
+use raft::auth::hasher::Hasher;
+use raft::auth::hasher::sha256::Sha256Hasher;
 use raft::StateInformation;
 
 use login::Login;
@@ -50,10 +52,10 @@ struct Context {
 
 pub fn init(binding_addr: SocketAddr,
             node_addr: SocketAddrV4,
-            states: HashMap<LogId,StateInformation>,
+            states: HashMap<LogId, StateInformation>,
             state_machines: HashMap<LogId, Arc<RwLock<DocumentStateMachine>>>,
             peers: Arc<RwLock<HashMap<ServerId, SocketAddr>>>,
-            auth: Sha256Auth<SingleCredentials>) {
+            auth: MultiAuth<SingleCredentials>) {
     let mut router = Router::new();
 
     let states = Arc::new(states);
@@ -115,42 +117,42 @@ pub fn init(binding_addr: SocketAddr,
                    "get_document_keys");
 
     }
-    {
-        let states = states.clone();
-        router.get("/meta/logs",
-                   move |request: &mut Request| http_logs(request, &context, states.clone()),
-                   "meta_logs");
-    }
-    {
-        let states = states.clone();
-        router.get("/meta/:lid/state/leader",
-                   move |request: &mut Request| {
-                       http_meta_state_leader(request, &context, states.clone())
-                   },
-                   "meta_state_leader");
-    }
-    {
-        let states = states.clone();
-        router.get("/meta/:lid/state/candidate",
-                   move |request: &mut Request| {
-                       http_meta_state_candidate(request, &context, states.clone())
-                   },
-                   "meta_state_candidate");
-    }
-    {
-        router.get("/meta/:lid/state/follower",
-                   move |request: &mut Request| {
-                       http_meta_state_follower(request, &context, states.clone())
-                   },
-                   "meta_state_follower");
-    }
-    {
-        router.get("/meta/peers",
-                   move |request: &mut Request| {
-                       http_meta_peers(request, &context, peers.clone())
-                   },
-                   "meta_peers");
-    }
+    // {
+    // let states = states.clone();
+    // router.get("/meta/logs",
+    // move |request: &mut Request| http_logs(request, &context, states.clone()),
+    // "meta_logs");
+    // }
+    // {
+    // let states = states.clone();
+    // router.get("/meta/:lid/state/leader",
+    // move |request: &mut Request| {
+    // http_meta_state_leader(request, &context, states.clone())
+    // },
+    // "meta_state_leader");
+    // }
+    // {
+    // let states = states.clone();
+    // router.get("/meta/:lid/state/candidate",
+    // move |request: &mut Request| {
+    // http_meta_state_candidate(request, &context, states.clone())
+    // },
+    // "meta_state_candidate");
+    // }
+    // {
+    // router.get("/meta/:lid/state/follower",
+    // move |request: &mut Request| {
+    // http_meta_state_follower(request, &context, states.clone())
+    // },
+    // "meta_state_follower");
+    // }
+    // {
+    // router.get("/meta/peers",
+    // move |request: &mut Request| {
+    // http_meta_peers(request, &context, peers.clone())
+    // },
+    // "meta_peers");
+    // }
 
     // TODO implement user & password
     fn http_get_documents(req: &mut Request,
@@ -196,78 +198,78 @@ pub fn init(binding_addr: SocketAddr,
         Ok(Response::with((status::Ok, format!("{}", &logs))))
     }
 
-    fn http_meta_state_leader(req: &mut Request,
-                              _: &Context,
-                              state: Arc<HashMap<LogId,
-                                                 (Arc<RwLock<LeaderState>>,
-                                                  Arc<RwLock<CandidateState>>,
-                                                  Arc<RwLock<FollowerState>>)>>)
-                              -> IronResult<Response> {
-
-        let raw_lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
-                               (status::BadRequest, "No lid found"));
-        let lid = itry!(LogId::from(raw_lid),
-                        (status::BadRequest, "LogId is invalid"));
-
-        let lock = state.get(&lid).unwrap().0.read().expect("Could not lock state");
-
-        let ref lock = *lock;
-
-        let json = to_json(&lock.clone()).expect("Cannot encode json");
-
-        Ok(Response::with((status::Ok, format!("{}", json))))
-    }
-
-    fn http_meta_state_candidate(req: &mut Request,
-                                 _: &Context,
-                                 state: Arc<HashMap<LogId,
-                                                    (Arc<RwLock<LeaderState>>,
-                                                     Arc<RwLock<CandidateState>>,
-                                                     Arc<RwLock<FollowerState>>)>>)
-                                 -> IronResult<Response> {
-
-        let raw_lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
-                               (status::BadRequest, "Cannot find logid"));
-        let lid = itry!(LogId::from(raw_lid), (status::BadRequest, "Invalid logid"));
-        let lock = state.get(&lid).unwrap().1.read().expect("Could not lock state");
-
-        Ok(Response::with((status::Ok, format!("{}", to_json(&*lock).unwrap()))))
-    }
-
-    fn http_meta_state_follower(req: &mut Request,
-                                _: &Context,
-                                state: Arc<HashMap<LogId,
-                                                   (Arc<RwLock<LeaderState>>,
-                                                    Arc<RwLock<CandidateState>>,
-                                                    Arc<RwLock<FollowerState>>)>>)
-                                -> IronResult<Response> {
-        let raw_lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
-                               (status::BadRequest, "Cannot find logid"));
-        let lid = itry!(LogId::from(raw_lid), (status::BadRequest, "Invalid logid"));
-        let lock = state.get(&lid).unwrap().2.read().expect("Could not lock state");
-
-        Ok(Response::with((status::Ok, format!("{}", to_json(&*lock).unwrap()))))
-    }
-
-    fn http_meta_peers(_: &mut Request,
-                       _: &Context,
-                       peers: Arc<RwLock<HashMap<ServerId, SocketAddr>>>)
-                       -> IronResult<Response> {
-        let lock = peers.read().unwrap();
-
-        Ok(Response::with((status::Ok, format!("{}", to_json(&*lock).unwrap()))))
-    }
-
-    spawn(move || {
-        let my_secret = b"verysecret".to_vec();
-        let mut ch = Chain::new(router);
-        ch.link_around(SessionStorage::new(SignedCookieBackend::new(my_secret)));
-        Iron::new(ch).http(binding_addr).unwrap();
-    });
+    // fn http_meta_state_leader(req: &mut Request,
+    // _: &Context,
+    // state: Arc<HashMap<LogId,
+    // (Arc<RwLock<LeaderState>>,
+    // Arc<RwLock<CandidateState>>,
+    // Arc<RwLock<FollowerState>>)>>)
+    // -> IronResult<Response> {
+    //
+    // let raw_lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
+    // (status::BadRequest, "No lid found"));
+    // let lid = itry!(LogId::from(raw_lid),
+    // (status::BadRequest, "LogId is invalid"));
+    //
+    // let lock = state.get(&lid).unwrap().0.read().expect("Could not lock state");
+    //
+    // let ref lock = *lock;
+    //
+    // let json = to_json(&lock.clone()).expect("Cannot encode json");
+    //
+    // Ok(Response::with((status::Ok, format!("{}", json))))
+    // }
+    //
+    // fn http_meta_state_candidate(req: &mut Request,
+    // _: &Context,
+    // state: Arc<HashMap<LogId,
+    // (Arc<RwLock<LeaderState>>,
+    // Arc<RwLock<CandidateState>>,
+    // Arc<RwLock<FollowerState>>)>>)
+    // -> IronResult<Response> {
+    //
+    // let raw_lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
+    // (status::BadRequest, "Cannot find logid"));
+    // let lid = itry!(LogId::from(raw_lid), (status::BadRequest, "Invalid logid"));
+    // let lock = state.get(&lid).unwrap().1.read().expect("Could not lock state");
+    //
+    // Ok(Response::with((status::Ok, format!("{}", to_json(&*lock).unwrap()))))
+    // }
+    //
+    // fn http_meta_state_follower(req: &mut Request,
+    // _: &Context,
+    // state: Arc<HashMap<LogId,
+    // (Arc<RwLock<LeaderState>>,
+    // Arc<RwLock<CandidateState>>,
+    // Arc<RwLock<FollowerState>>)>>)
+    // -> IronResult<Response> {
+    // let raw_lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
+    // (status::BadRequest, "Cannot find logid"));
+    // let lid = itry!(LogId::from(raw_lid), (status::BadRequest, "Invalid logid"));
+    // let lock = state.get(&lid).unwrap().2.read().expect("Could not lock state");
+    //
+    // Ok(Response::with((status::Ok, format!("{}", to_json(&*lock).unwrap()))))
+    // }
+    //
+    // fn http_meta_peers(_: &mut Request,
+    // _: &Context,
+    // peers: Arc<RwLock<HashMap<ServerId, SocketAddr>>>)
+    // -> IronResult<Response> {
+    // let lock = peers.read().unwrap();
+    //
+    // Ok(Response::with((status::Ok, format!("{}", to_json(&*lock).unwrap()))))
+    // }
+    //
+    // spawn(move || {
+    // let my_secret = b"verysecret".to_vec();
+    // let mut ch = Chain::new(router);
+    // ch.link_around(SessionStorage::new(SignedCookieBackend::new(my_secret)));
+    // Iron::new(ch).http(binding_addr).unwrap();
+    // });
 
     // TODO change to generic
     fn http_login(req: &mut Request,
-                  auth: Arc<Sha256Auth<SingleCredentials>>)
+                  auth: Arc<MultiAuth<SingleCredentials>>)
                   -> IronResult<Response> {
         let username = {
             let ref body = req.get::<bodyparser::Json>().unwrap().unwrap();
@@ -283,9 +285,9 @@ pub fn init(binding_addr: SocketAddr,
             p.as_str().unwrap().to_string()
         };
 
-        let hash_password = auth.hash(&password);
+        let hash_password = Sha256Hasher::hash(&password);
 
-        match auth.find(&username, &hash_password) { 
+        match auth.find(&username, &hash_password) {
             true => {
                 let login = Login::new(username, hash_password);
                 try!(req.session().set(login));
@@ -365,7 +367,7 @@ pub fn init(binding_addr: SocketAddr,
         };
 
         let session = iexpect!(try!(req.session().get::<Login>()),
-                                   (status::BadRequest, "No session! Please login"));
+                               (status::BadRequest, "No session! Please login"));
 
         let ref username = session.username;
         let ref password = session.hashed_password;

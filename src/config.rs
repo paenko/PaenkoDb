@@ -7,6 +7,9 @@ use parser::toml::Parser as tParser;
 use toml::DecodeError;
 use raft::ServerId;
 
+type Username = String;
+type Password = String;
+
 #[derive(Debug,Deserialize,Clone)]
 /// Contains the configuration of config.toml
 pub struct Config {
@@ -17,6 +20,7 @@ pub struct Config {
     pub security: SecurityConfig,
 }
 
+/// TODO Move community_string to Security
 #[derive(Debug,Deserialize,Clone)]
 /// The specific server configuration
 pub struct ServerConfig {
@@ -50,8 +54,14 @@ pub struct LogConfig {
 #[derive(Debug,Deserialize,Clone)]
 /// Configuration for Client-Security
 pub struct SecurityConfig {
-    pub username: String,
-    pub password: String,
+    pub credentials: Vec<CredentialConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+/// Configuration for user and password
+pub struct CredentialConfig {
+    pub username: Username,
+    pub password: Password,
 }
 
 impl Config {
@@ -122,5 +132,20 @@ impl PeerConfig {
 impl LogConfig {
     pub fn get_log_id(&self) -> Uuid {
         self.lid.parse().expect("LogId of a log is invalid")
+    }
+}
+
+impl SecurityConfig {
+    pub fn get_credentials(&self) -> Vec<(Username, Password)> {
+        self.credentials
+            .iter()
+            .map(|cred| cred.get_pair())
+            .collect()
+    }
+}
+
+impl CredentialConfig {
+    pub fn get_pair(&self) -> (Username, Password) {
+        (self.username.clone(), self.password.clone())
     }
 }

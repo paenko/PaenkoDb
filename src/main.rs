@@ -59,8 +59,11 @@ use config::*;
 use handler::Handler;
 use doclog::DocLog;
 
-use raft::auth::sha256::Sha256Auth;
+use raft::auth::hasher::sha256::Sha256Hasher;
 use raft::auth::credentials::SingleCredentials;
+use raft::auth::multi::{MultiAuth, MultiAuthBuilder};
+
+use raft::TimeoutConfiguration;
 
 use http_handler::*;
 
@@ -78,7 +81,7 @@ Commands:
 Usage:
     document get <doc-id> <lid> <node-address> <username> <password>
     document put <doc-id> <lid> <node-address> <filepath> <username> <password>
-    document post <lid> <node-address> <filepath> <username> <password> 
+    document post <lid> <node-address> <filepath> <username> <password>
     document remove <doc-id> <lid> <node-address> <username> <password>
     document server  <config-path>
     document begintrans <lid> <node-address> <username> <password>
@@ -255,15 +258,24 @@ fn server(args: &Args) {
         println!("Init {:?}", l.lid);
     }
 
-    let credentials = SingleCredentials::new(config.security.username.clone(), config.security.password.clone());
-    let auth = Sha256Auth::new(credentials);
+    let mut builder = MultiAuth::<SingleCredentials>::build()
+        .with_community_string(&config.server.community_string);
+
+    for &(ref username, ref password) in config.security.get_credentials().iter() {
+        builder = builder
+            .add_user_hashed(username, password);
+    }
+
+
+    let auth = builder.finalize();
 
     let (mut server, mut event_loop) = Server::new(ServerId::from(config.server.node_id),
                                                    server_addr,
-                                                   &peers,
-                                                   config.server.community_string.to_string(),
+                                                   peers.clone(),
+                                                   logs,
                                                    auth.clone(),
-                                                   logs)
+                                                   TimeoutConfiguration::default(),
+                                                    129 as usize)
         .unwrap();
 
     {
