@@ -135,7 +135,7 @@ impl Log for DocLog {
 
         term_handler.flush().expect("Flushing failed");
 
-        term_handler.sync_all();
+        term_handler.sync_all().expect("Syncing failed");
 
         self.set_voted_for(None).unwrap();
 
@@ -182,7 +182,7 @@ impl Log for DocLog {
 
         voted_for_handler.flush().expect("Flushing failed");
 
-        voted_for_handler.sync_all();
+        voted_for_handler.sync_all().expect("Syncing failed");
 
         Ok(())
     }
