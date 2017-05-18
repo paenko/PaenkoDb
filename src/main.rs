@@ -247,7 +247,7 @@ fn server(args: &Args) {
     for l in &config.logs {
         use std::path::Path;
 
-        let mut state_machine = DocumentStateMachine::new(&l.path);
+        let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
         {
             let snap_map = state_machine.get_snapshot_map().unwrap_or_default();
             let snap_log = state_machine.get_snapshot_log().unwrap_or_default();

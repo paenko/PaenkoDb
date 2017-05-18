@@ -10,7 +10,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
 use std::io::Error as IoError;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use handler::Message;
 use document::DocumentId;
@@ -20,34 +20,35 @@ use std::collections::HashMap;
 pub struct DocumentStateMachine {
     log: Vec<DocumentRecord>,
     map: HashMap<DocumentId, Document>,
-    volume: String,
+    path: PathBuf,
     transaction_offset: usize,
 }
 
 impl DocumentStateMachine {
-    pub fn new(volume: &str) -> Self {
+    pub fn new(path: &Path) -> Self {
 
         let s = DocumentStateMachine {
-            volume: volume.to_string(),
+            path: path.to_path_buf(),
             map: HashMap::new(),
             log: Vec::new(),
             transaction_offset: 0,
         };
 
-        if !Self::check_if_volume_exists(volume) {
+        if !s.check_if_volume_exists() {
             s.create_dir()
-                .expect(&format!("Cannot find volume {}. You might need to create it", volume));
+                .expect(&format!("Cannot find volume {}. You might need to create it",
+                                 s.path.to_str().unwrap()));
         }
 
         s
     }
 
-    fn check_if_volume_exists(volume: &str) -> bool {
-        Path::new(volume).exists()
+    fn check_if_volume_exists(&self) -> bool {
+        self.path.exists()
     }
 
     fn create_dir(&self) -> ::std::io::Result<()> {
-        ::std::fs::create_dir_all(&self.volume)
+        ::std::fs::create_dir_all(&self.path)
     }
 
     pub fn get_documents(&self) -> Vec<DocumentId> {
@@ -56,7 +57,9 @@ impl DocumentStateMachine {
 
     fn post(&mut self, document: Document) -> Vec<u8> {
         let record = DocumentRecord::new(document.id,
-                                         format!("{}/{}", &self.volume, &document.id.to_string()),
+                                         format!("{}/{}",
+                                                 &self.path.to_str().unwrap(),
+                                                 &document.id.to_string()),
                                          ActionType::Post);
 
         self.log.push(record);
@@ -66,8 +69,9 @@ impl DocumentStateMachine {
     }
 
     fn remove(&mut self, id: DocumentId) -> Vec<u8> {
-        let mut record =
-            DocumentRecord::new(id, format!("{}/{}", &self.volume, &id), ActionType::Remove);
+        let mut record = DocumentRecord::new(id,
+                                             format!("{}/{}", &self.path.to_str().unwrap(), &id),
+                                             ActionType::Remove);
 
         {
             let old_document = &self.map[&id];
@@ -81,8 +85,9 @@ impl DocumentStateMachine {
     }
 
     fn put(&mut self, id: DocumentId, new_payload: Vec<u8>) -> Vec<u8> {
-        let mut record =
-            DocumentRecord::new(id, format!("{}/{}", &self.volume, &id), ActionType::Put);
+        let mut record = DocumentRecord::new(id,
+                                             format!("{}/{}", &self.path.to_str().unwrap(), &id),
+                                             ActionType::Put);
 
         {
             let old_document = &self.map[&id];
@@ -105,30 +110,30 @@ impl DocumentStateMachine {
     }
 
 
-    fn find_by_id(&self, id: DocumentId) -> DocumentRecord {
+    fn find_by_id(&self, id: DocumentId) -> Option<DocumentRecord> {
         for s in self.log.iter().rev().skip(self.transaction_offset) {
             if s.get_id() == id {
-                return s.clone();
+                Some(s.clone());
             }
         }
 
-        panic!("Reverting failed")
+        None
     }
 
     pub fn get_snapshot_map(&self) -> Result<Vec<u8>, IoError> {
-        let mut fs = try!(File::open(&format!("./{}/snapshot_map", self.volume)));
+        let mut fs = try!(File::open(&format!("./{}/snapshot_map", self.path.to_str().unwrap())));
         let mut buffer = Vec::new();
 
-        try!(fs.read_to_end(&mut buffer));
+        fs.read_to_end(&mut buffer)?;
 
         Ok(buffer)
     }
 
     pub fn get_snapshot_log(&self) -> Result<Vec<u8>, IoError> {
-        let mut fs = try!(File::open(&format!("./{}/snapshot_log", self.volume)));
+        let mut fs = try!(File::open(&format!("./{}/snapshot_log", self.path.to_str().unwrap())));
         let mut buffer = Vec::new();
 
-        try!(fs.read_to_end(&mut buffer));
+        fs.read_to_end(&mut buffer)?;
 
         Ok(buffer)
     }
@@ -180,7 +185,7 @@ impl state_machine::StateMachine for DocumentStateMachine {
             .read(true)
             .write(true)
             .create(true)
-            .open(&format!("{}/snapshot_map", self.volume))
+            .open(&format!("{}/snapshot_map", self.path.to_str().unwrap()))
             .expect("Unable to create snapshot file");
 
         let map = encode(&self.map, SizeLimit::Infinite).unwrap();
@@ -191,7 +196,7 @@ impl state_machine::StateMachine for DocumentStateMachine {
             .read(false)
             .write(true)
             .create(true)
-            .open(&format!("{}/snapshot_log", self.volume))
+            .open(&format!("{}/snapshot_log", self.path.to_str().unwrap()))
             .expect("Unable to create snapshot file");
 
         let log = encode(&self.log, SizeLimit::Infinite).unwrap();
@@ -228,7 +233,9 @@ impl state_machine::StateMachine for DocumentStateMachine {
                 self.remove(document.id);
             }
             Message::Remove(id) => {
-                let record = self.find_by_id(id);
+                let record = self.find_by_id(id)
+                    .expect("Reverting failed because no record could be found");
+
                 let document = Document {
                     id: record.get_id(),
                     payload: record.get_old_payload().unwrap(),
@@ -238,7 +245,8 @@ impl state_machine::StateMachine for DocumentStateMachine {
                 self.post(document);
             }
             Message::Put(id, new_payload) => {
-                let record = self.find_by_id(id);
+                let record = self.find_by_id(id)
+                    .expect("Reverting failed because no record could be found");
 
                 let new_payload = record.get_old_payload().unwrap();
                 self.put(id, new_payload);
