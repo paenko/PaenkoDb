@@ -6,6 +6,7 @@ use bincode::serde::serialize as encode;
 use bincode::serde::deserialize_from as decode_from;
 use bincode::serde::serialize_into as encode_into;
 use std::fs::OpenOptions;
+use std::path::{Path, PathBuf};
 
 use raft::persistent_log::Log;
 use raft::LogIndex;
@@ -13,11 +14,11 @@ use raft::ServerId;
 use raft::Term;
 use raft::LogId;
 
-#[derive(Clone, Debug)]
+#[derive(Clone,Debug)]
 pub struct DocLog {
     entries: Vec<(Term, Vec<u8>)>,
     logid: LogId,
-    prefix: String,
+    path: PathBuf,
 }
 
 /// Non-instantiable error type for MemLog
@@ -43,15 +44,16 @@ impl error::Error for Error {
 
 impl DocLog {
     /// Creates a new log
-    pub fn new(prefix: &str, lid: LogId) -> Self {
+    pub fn new(path: &Path, lid: LogId) -> Self {
         let mut d = DocLog {
-            prefix: prefix.to_string(),
+            path: path.to_path_buf(),
             entries: Vec::new(),
             logid: lid,
         };
 
         d.create_dir()
-            .expect(&format!("Cannot find volume {}. You might need to create it", prefix));
+            .expect(&format!("Cannot find volume {}. You might need to create it",
+                             path.to_str().unwrap()));
         d.set_current_term(Term::from(0)).unwrap();
         d.restore_snapshot();
 
@@ -60,12 +62,12 @@ impl DocLog {
 
     /// Creates the directories if they do not exist
     fn create_dir(&self) -> ::std::io::Result<()> {
-        ::std::fs::create_dir_all(&self.prefix)
+        ::std::fs::create_dir_all(&self.path)
     }
 
     /// Returns the directory which information will be saved to
-    pub fn get_volume(&self) -> String {
-        self.prefix.clone()
+    pub fn get_volume(&self) -> Option<&str> {
+        self.path.to_str()
     }
 
     // TODO implement Result
@@ -75,9 +77,9 @@ impl DocLog {
             .read(true)
             .write(true)
             .create(true)
-            .open(format!("{}/{}_log", self.prefix, self.logid))
+            .open(format!("{}/{}_log", self.path.to_str().unwrap(), self.logid))
             .expect(&format!("Filehandler cannot open {}/{}_{}",
-                             self.prefix,
+                             self.path.to_str().unwrap(),
                              self.logid,
                              "log"));
 
@@ -91,7 +93,7 @@ impl DocLog {
             .read(true)
             .write(false)
             .create(false)
-            .open(format!("{}/{}_log", self.prefix, self.logid)) {
+            .open(format!("{}/{}_log", self.path.to_str().unwrap(), self.logid)) {
             Ok(s) => s,
             Err(_) => return,
         };
@@ -107,8 +109,9 @@ impl Log for DocLog {
     type Error = Error;
 
     fn current_term(&self) -> result::Result<Term, Error> {
-        let mut term_handler = File::open(format!("{}/{}_{}", self.prefix, self.logid, "term"))
-            .expect("Unable to read current_term");
+        let mut term_handler =
+            File::open(format!("{}/{}_{}", self.path.to_str().unwrap(), self.logid, "term"))
+                .expect("Unable to read current_term");
 
         let term: Term = decode_from(&mut term_handler, SizeLimit::Infinite).unwrap();
 
@@ -120,9 +123,9 @@ impl Log for DocLog {
             .read(true)
             .write(true)
             .create(true)
-            .open(format!("{}/{}_{}", self.prefix, self.logid, "term"))
+            .open(format!("{}/{}_{}", self.path.to_str().unwrap(), self.logid, "term"))
             .expect(&format!("Filehandler cannot open {}/{}_{}",
-                             self.prefix,
+                             self.path.to_str().unwrap(),
                              self.logid,
                              "term"));
 
@@ -131,6 +134,8 @@ impl Log for DocLog {
         term_handler.write_all(bytes.as_slice()).expect("Unable to save the current term");
 
         term_handler.flush().expect("Flushing failed");
+
+        term_handler.sync_all();
 
         self.set_voted_for(None).unwrap();
 
@@ -145,9 +150,11 @@ impl Log for DocLog {
     }
 
     fn voted_for(&self) -> result::Result<Option<ServerId>, Error> {
-        let mut voted_for_handler =
-            File::open(format!("{}/{}_{}", self.prefix, self.logid, "voted_for"))
-                .expect("Unable to read voted_for");
+        let mut voted_for_handler = File::open(format!("{}/{}_{}",
+                                                       self.path.to_str().unwrap(),
+                                                       self.logid,
+                                                       "voted_for"))
+            .expect("Unable to read voted_for");
 
         let voted_for: Option<ServerId> = decode_from(&mut voted_for_handler, SizeLimit::Infinite)
             .unwrap();
@@ -160,9 +167,12 @@ impl Log for DocLog {
             .read(true)
             .write(true)
             .create(true)
-            .open(format!("{}/{}_{}", self.prefix, self.logid, "voted_for"))
+            .open(format!("{}/{}_{}",
+                          self.path.to_str().unwrap(),
+                          self.logid,
+                          "voted_for"))
             .expect(&format!("Filehandler cannot open {}/{}_{}",
-                             self.prefix,
+                             self.path.to_str().unwrap(),
                              self.logid,
                              "voted_for"));
 
@@ -171,6 +181,8 @@ impl Log for DocLog {
         voted_for_handler.write_all(bytes.as_slice()).expect("Unable to save the server vote");
 
         voted_for_handler.flush().expect("Flushing failed");
+
+        voted_for_handler.sync_all();
 
         Ok(())
     }
@@ -228,16 +240,16 @@ mod test {
     use uuid::Uuid;
     use raft::LogId;
     use self::tempdir::TempDir;
+    use std::path::Path;
 
     lazy_static!{
         static ref lid : LogId = LogId::from("3d30aa56-98b2-4891-aec5-847cee6e1703").unwrap();
     }
 
-
     #[test]
     fn test_current_term() {
         if let Ok(dir) = TempDir::new("tmp") {
-            let mut store = DocLog::new("tmp", *lid);
+            let mut store = DocLog::new(dir.path(), *lid);
             assert_eq!(Term::from(0), store.current_term().unwrap());
             store.set_voted_for(Some(ServerId::from(0))).unwrap();
             store.set_current_term(Term::from(42)).unwrap();
@@ -252,7 +264,7 @@ mod test {
     #[test]
     fn test_voted_for() {
         if let Ok(dir) = TempDir::new("tmp") {
-            let mut store = DocLog::new("tmp", *lid);
+            let mut store = DocLog::new(dir.path(), *lid);
             assert_eq!(None, store.voted_for().unwrap());
             let id = ServerId::from(0);
             store.set_voted_for(Some(id)).unwrap();
@@ -264,7 +276,7 @@ mod test {
     #[test]
     fn test_append_entries() {
         if let Ok(dir) = TempDir::new("tmp") {
-            let mut store = DocLog::new("tmp", *lid);
+            let mut store = DocLog::new(dir.path(), *lid);
             assert_eq!(LogIndex::from(0), store.latest_log_index().unwrap());
             assert_eq!(Term::from(0), store.latest_log_term().unwrap());
 
