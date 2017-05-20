@@ -24,6 +24,7 @@ use raft::TransactionId;
 use raft::state::{LeaderState, CandidateState, FollowerState};
 use raft::auth::Auth;
 use raft::auth::multi::MultiAuth;
+use raft::auth::credentials::Credentials;
 use raft::auth::credentials::SingleCredentials;
 use raft::auth::hasher::Hasher;
 use raft::auth::hasher::sha256::Sha256Hasher;
@@ -31,7 +32,7 @@ use raft::StateInformation;
 
 use login::Login;
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, RwLock};
 
 use base64::{encode, decode};
@@ -62,6 +63,11 @@ pub fn init(binding_addr: SocketAddr,
     let state_machines = Arc::new(state_machines);
     let context = Context { node_addr: node_addr };
     let auth = Arc::new(auth);
+
+    let peer_set: HashSet<SocketAddr> =
+        peers.clone().read().unwrap().into_iter().map(|(id, addr)| addr).collect();
+
+    let peer_set = Arc::new(RwLock::new(peer_set));
 
     router.get("/auth/login",
                move |request: &mut Request| http_display_login(request),
@@ -322,6 +328,8 @@ pub fn init(binding_addr: SocketAddr,
         let ref username = session.username;
         let ref password = session.hashed_password;
 
+        let credentials = SingleCredentials::new(username, password);
+
         let ref id = iexpect!(req.extensions
             .get::<Router>()
             .unwrap()
@@ -329,6 +337,9 @@ pub fn init(binding_addr: SocketAddr,
 
         let ref lid = iexpect!(req.extensions.get::<Router>().unwrap().find("lid"),
                                (status::BadRequest, "Cannot find logid"));
+
+        //        let handler = Handler::new(lock.clone(), LogId::from(*lid).unwrap(), credentials);
+
 
         match Handler::get(&SocketAddr::V4(context.node_addr),
                            &username,
