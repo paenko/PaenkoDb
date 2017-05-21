@@ -63,18 +63,27 @@ impl Config {
             .expect(&format!("Unable to read the config {}", file));
 
         let mut config = String::new();
-        config_file.read_to_string(&mut config).expect("Unable to read the config");
+        config_file
+            .read_to_string(&mut config)
+            .expect("Unable to read the config");
 
         tParser::parse(&config)
     }
 
     pub fn get_node_addr(&self) -> SocketAddr {
-        let server: Vec<SocketAddr> = self.server.node_address.to_socket_addrs().unwrap().collect();
+        let server: Vec<SocketAddr> = self.server
+            .node_address
+            .to_socket_addrs()
+            .unwrap()
+            .collect();
         server[0]
     }
 
     pub fn get_binding_addr(&self) -> SocketAddr {
-        self.server.binding_addr.parse().expect("Binding address is invalid")
+        self.server
+            .binding_addr
+            .parse()
+            .expect("Binding address is invalid")
     }
 
     pub fn get_dynamic_peering(&self) -> Option<(ServerId, SocketAddr)> {
@@ -113,10 +122,7 @@ impl Config {
 
 impl PeerConfig {
     pub fn get_node_addr(&self) -> SocketAddr {
-        let addr: Vec<SocketAddr> = self.node_address
-            .to_socket_addrs()
-            .unwrap()
-            .collect();
+        let addr: Vec<SocketAddr> = self.node_address.to_socket_addrs().unwrap().collect();
 
         addr[0]
     }

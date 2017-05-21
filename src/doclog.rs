@@ -53,7 +53,7 @@ impl DocLog {
 
         d.create_dir()
             .expect(&format!("Cannot find volume {}. You might need to create it",
-                             path.to_str().unwrap()));
+                            path.to_str().unwrap()));
         d.set_current_term(Term::from(0)).unwrap();
         d.restore_snapshot();
 
@@ -79,9 +79,9 @@ impl DocLog {
             .create(true)
             .open(format!("{}/{}_log", self.path.to_str().unwrap(), self.logid))
             .expect(&format!("Filehandler cannot open {}/{}_{}",
-                             self.path.to_str().unwrap(),
-                             self.logid,
-                             "log"));
+                            self.path.to_str().unwrap(),
+                            self.logid,
+                            "log"));
 
         encode_into(&mut handler, &self.entries.as_slice(), SizeLimit::Infinite)
             .expect("Log serialize_into failed");
@@ -89,14 +89,15 @@ impl DocLog {
 
     /// Restores all LogEntries from disk
     pub fn restore_snapshot(&mut self) {
-        let mut handler = match OpenOptions::new()
-            .read(true)
-            .write(false)
-            .create(false)
-            .open(format!("{}/{}_log", self.path.to_str().unwrap(), self.logid)) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+        let mut handler =
+            match OpenOptions::new()
+                      .read(true)
+                      .write(false)
+                      .create(false)
+                      .open(format!("{}/{}_log", self.path.to_str().unwrap(), self.logid)) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
 
 
         self.entries = decode_from(&mut handler, SizeLimit::Infinite)
@@ -125,13 +126,15 @@ impl Log for DocLog {
             .create(true)
             .open(format!("{}/{}_{}", self.path.to_str().unwrap(), self.logid, "term"))
             .expect(&format!("Filehandler cannot open {}/{}_{}",
-                             self.path.to_str().unwrap(),
-                             self.logid,
-                             "term"));
+                            self.path.to_str().unwrap(),
+                            self.logid,
+                            "term"));
 
         let bytes = encode(&term, SizeLimit::Infinite).expect("Cannot encode term");
 
-        term_handler.write_all(bytes.as_slice()).expect("Unable to save the current term");
+        term_handler
+            .write_all(bytes.as_slice())
+            .expect("Unable to save the current term");
 
         term_handler.flush().expect("Flushing failed");
 
@@ -154,7 +157,7 @@ impl Log for DocLog {
                                                        self.path.to_str().unwrap(),
                                                        self.logid,
                                                        "voted_for"))
-            .expect("Unable to read voted_for");
+                .expect("Unable to read voted_for");
 
         let voted_for: Option<ServerId> = decode_from(&mut voted_for_handler, SizeLimit::Infinite)
             .unwrap();
@@ -172,13 +175,15 @@ impl Log for DocLog {
                           self.logid,
                           "voted_for"))
             .expect(&format!("Filehandler cannot open {}/{}_{}",
-                             self.path.to_str().unwrap(),
-                             self.logid,
-                             "voted_for"));
+                            self.path.to_str().unwrap(),
+                            self.logid,
+                            "voted_for"));
 
         let bytes = encode(&address, SizeLimit::Infinite).expect("Cannot encode voted_for");
 
-        voted_for_handler.write_all(bytes.as_slice()).expect("Unable to save the server vote");
+        voted_for_handler
+            .write_all(bytes.as_slice())
+            .expect("Unable to save the server vote");
 
         voted_for_handler.flush().expect("Flushing failed");
 
@@ -212,7 +217,10 @@ impl Log for DocLog {
         assert!(self.latest_log_index().unwrap() + 1 >= from);
         self.entries.truncate((from - 1).as_u64() as usize);
         self.snapshot();
-        Ok(self.entries.extend(entries.iter().map(|&(term, command)| (term, command.to_vec()))))
+        Ok(self.entries
+               .extend(entries
+                           .iter()
+                           .map(|&(term, command)| (term, command.to_vec()))))
     }
 
     fn truncate(&mut self, lo: LogIndex) -> result::Result<(), Error> {
@@ -281,7 +289,8 @@ mod test {
             assert_eq!(Term::from(0), store.latest_log_term().unwrap());
 
             // [0.1, 0.2, 0.3, 1.4]
-            store.append_entries(LogIndex::from(1),
+            store
+                .append_entries(LogIndex::from(1),
                                 &[(Term::from(0), &[1]),
                                   (Term::from(0), &[2]),
                                   (Term::from(0), &[3]),
@@ -310,7 +319,8 @@ mod test {
                        store.entry(LogIndex::from(3)).unwrap());
 
             // [0.1, 0.2, 2.3, 3.4]
-            store.append_entries(LogIndex::from(3),
+            store
+                .append_entries(LogIndex::from(3),
                                 &[(Term::from(2), &[3]), (Term::from(3), &[4])])
                 .unwrap();
             assert_eq!(LogIndex::from(4), store.latest_log_index().unwrap());

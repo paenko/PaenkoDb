@@ -133,7 +133,11 @@ impl Args {
     }
 
     pub fn get_node_addr(&self) -> SocketAddr {
-        self.arg_node_address.clone().unwrap().parse().expect("Given IP is not valid")
+        self.arg_node_address
+            .clone()
+            .unwrap()
+            .parse()
+            .expect("Given IP is not valid")
     }
 
     pub fn get_lid(&self) -> LogId {
@@ -181,14 +185,14 @@ fn main() {
 
             let id = handler.post(document, tid).unwrap();
 
-            println!("{}",id);
+            println!("{}", id);
         } else if args.cmd_remove {
             let id = args.get_doc_id();
             let tid = TransactionId::new();
 
-            match handler.remove(id, tid){
+            match handler.remove(id, tid) {
                 Ok(()) => println!("ok"),
-                Err(err) => panic!(err)
+                Err(err) => panic!(err),
             }
         } else if args.cmd_put {
             let id = args.get_doc_id();
@@ -196,15 +200,15 @@ fn main() {
 
             let buffer = get_bytes(&args.arg_filepath);
 
-             handler.put(id, buffer, tid).unwrap();
+            handler.put(id, buffer, tid).unwrap();
 
-             println!("ok");
+            println!("ok");
         } else if args.cmd_begintrans {
             let tid = TransactionId::new();
             let res = handler.begin_transaction(tid);
 
             println!("{}", res.unwrap());
-        } else if args.cmd_commit{
+        } else if args.cmd_commit {
             let tid = args.get_trans_id();
 
             let res = handler.commit_transaction(tid);
@@ -238,7 +242,7 @@ fn main() {
 
             let buffer = get_bytes(&args.arg_filepath);
 
-            handler.put(id, buffer,tid).unwrap();
+            handler.put(id, buffer, tid).unwrap();
 
             println!("ok");
         }
@@ -254,11 +258,14 @@ fn new_handler(args: &Args) -> Handler<DB_CREDENTIAL> {
     Handler::new(node_addr, lid, credentials)
 }
 
-fn get_bytes(filepath: &str) -> Vec<u8>{
-    let mut fhandler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
+fn get_bytes(filepath: &str) -> Vec<u8> {
+    let mut fhandler = File::open(&filepath)
+        .expect(&format!("Unable to open the file{}", filepath));
     let mut buffer: Vec<u8> = Vec::new();
 
-    fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+    fhandler
+        .read_to_end(&mut buffer)
+        .expect(&format!("Unable read the file to end {}", filepath));
 
     buffer
 }
@@ -283,8 +290,8 @@ fn server(args: &Args) {
                                                    logs,
                                                    auth.clone(),
                                                    TimeoutConfiguration::default(),
-                                                    129 as usize)
-        .unwrap();
+                                                   129 as usize)
+            .unwrap();
 
 
     setup_dynamic_peering(&config, &peers, &mut server, &mut event_loop);
@@ -303,29 +310,35 @@ fn server(args: &Args) {
 }
 
 fn setup_logs(config: &Config) -> Vec<(LogId, DocLog, DocumentStateMachine)> {
-    config.logs.iter().map(|l| {
-        use std::path::Path;
+    config
+        .logs
+        .iter()
+        .map(|l| {
+            use std::path::Path;
 
-        let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
-        {
-            let snapshot_map = state_machine.get_snapshot_map().unwrap_or_default();
-            state_machine.restore_snapshot(snapshot_map).unwrap();
-        }
+            let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
+            {
+                let snapshot_map = state_machine.get_snapshot_map().unwrap_or_default();
+                state_machine.restore_snapshot(snapshot_map).unwrap();
+            }
 
-        let logid = LogId::from(&l.lid).expect(&format!("The logid given was invalid {:?}", l.lid));
-        let log = DocLog::new(&Path::new(&l.path), LogId::from(&l.lid).unwrap());
+            let logid = LogId::from(&l.lid)
+                .expect(&format!("The logid given was invalid {:?}", l.lid));
+            let log = DocLog::new(&Path::new(&l.path), LogId::from(&l.lid).unwrap());
 
-        println!("Init {:?}", l.lid);
+            println!("Init {:?}", l.lid);
 
-        (logid, log, state_machine)
+            (logid, log, state_machine)
 
-    }).collect()
+        })
+        .collect()
 }
 
 fn setup_peers(config: &Config) -> HashMap<ServerId, SocketAddr> {
     let (node_ids, node_addresses) = config.get_nodes();
 
-    node_ids.iter()
+    node_ids
+        .iter()
         .zip(node_addresses.iter())
         .map(|(&id, addr)| (ServerId::from(id), *addr))
         .collect::<HashMap<_, _>>()
@@ -335,11 +348,15 @@ fn setup_auth(config: &Config) -> MultiAuth<DB_CREDENTIAL> {
     let mut builder = MultiAuth::<DB_CREDENTIAL>::build()
         .with_community_string(&config.server.community_string);
 
-    let creds: Vec<(String,String)> = config.clone().credentials.into_iter().map(|cr| (cr.username, cr.password)).collect();
+    let creds: Vec<(String, String)> = config
+        .clone()
+        .credentials
+        .into_iter()
+        .map(|cr| (cr.username, cr.password))
+        .collect();
 
     for &(ref username, ref password) in creds.iter() {
-        builder = builder
-            .add_user::<DB_HASHER>(&username, &password);
+        builder = builder.add_user::<DB_HASHER>(&username, &password);
     }
 
     let auth = builder.finalize();
@@ -347,14 +364,20 @@ fn setup_auth(config: &Config) -> MultiAuth<DB_CREDENTIAL> {
     auth
 }
 
-fn setup_dynamic_peering<L, M, A>(config: &Config, peers: &HashMap<ServerId, SocketAddr>, server: &mut Server<L, M, A>, event_loop: &mut EventLoop<Server<L,M,A>>)
+fn setup_dynamic_peering<L, M, A>(config: &Config,
+                                  peers: &HashMap<ServerId, SocketAddr>,
+                                  server: &mut Server<L, M, A>,
+                                  event_loop: &mut EventLoop<Server<L, M, A>>)
     where L: Log,
-      M: StateMachine,
-      A: Auth {
+          M: StateMachine,
+          A: Auth
+{
     if peers.is_empty() {
         match config.get_dynamic_peering() {
             Some((peer_id, peer_addr)) => {
-                server.peering_request(event_loop, ServerId::from(peer_id), peer_addr).unwrap();
+                server
+                    .peering_request(event_loop, ServerId::from(peer_id), peer_addr)
+                    .unwrap();
             }
             None => panic!("No peers or dynamic peering defined"),
         }

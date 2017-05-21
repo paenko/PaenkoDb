@@ -1,5 +1,5 @@
 use base64::{encode, decode};
-use bincode::serde::{serialize,deserialize};
+use bincode::serde::{serialize, deserialize};
 use bincode::SizeLimit;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -8,15 +8,15 @@ pub struct Login {
     /// The username of the user
     pub username: String,
     /// The password of the user. This is String is hashed
-    pub hashed_password : String
+    pub hashed_password: String,
 }
 
-impl Login{
+impl Login {
     /// Creates new Login
-    pub fn new(username: String, hashed_password: String) -> Self{
-        Login{
+    pub fn new(username: String, hashed_password: String) -> Self {
+        Login {
             username,
-            hashed_password
+            hashed_password,
         }
     }
 }
@@ -26,7 +26,7 @@ impl ::iron_sessionstorage::Value for Login {
         "logged_in_user"
     }
     fn into_raw(self) -> String {
-        encode(&serialize(&self,SizeLimit::Infinite).unwrap())
+        encode(&serialize(&self, SizeLimit::Infinite).unwrap())
     }
     fn from_raw(value: String) -> Option<Self> {
         if value.is_empty() {

@@ -34,7 +34,7 @@ impl DocumentStateMachine {
         if !s.check_if_volume_exists() {
             s.create_dir()
                 .expect(&format!("Cannot find volume {}. You might need to create it",
-                                 s.path.to_str().unwrap()));
+                                s.path.to_str().unwrap()));
         }
 
         s
@@ -87,7 +87,8 @@ impl DocumentStateMachine {
 
 impl state_machine::StateMachine for DocumentStateMachine {
     fn apply(&mut self, new_value: &[u8]) -> Result<Vec<u8>, StateMachineError> {
-        let message = decode(&new_value).map_err(StateMachineError::Deserialization)?;
+        let message = decode(&new_value)
+            .map_err(StateMachineError::Deserialization)?;
 
         let response = match message {
             Message::Get(_) => self.query(new_value)?, // delegate to query when propose
@@ -102,7 +103,8 @@ impl state_machine::StateMachine for DocumentStateMachine {
     }
 
     fn revert(&mut self, command: &[u8]) -> Result<(), StateMachineError> {
-        let message = decode(&command).map_err(StateMachineError::Deserialization)?;
+        let message = decode(&command)
+            .map_err(StateMachineError::Deserialization)?;
 
         let response = match message {
             Message::Get(_) => return Err(StateMachineError::Other("Cannot skip get".to_owned())),
@@ -137,13 +139,15 @@ impl state_machine::StateMachine for DocumentStateMachine {
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, StateMachineError> {
-        let mut file = OpenOptions::new().read(true)
+        let mut file = OpenOptions::new()
+            .read(true)
             .write(true)
             .create(true)
             .open(&format!("{}/snapshot_map", self.path.to_str().unwrap()))
             .map_err(StateMachineError::Io)?;
 
-        let map = encode(&self.map, SizeLimit::Infinite).map_err(StateMachineError::Serialization)?;
+        let map = encode(&self.map, SizeLimit::Infinite)
+            .map_err(StateMachineError::Serialization)?;
         file.write_all(&map).map_err(StateMachineError::Io)?;
 
         Ok(map)
@@ -189,7 +193,9 @@ mod tests {
 
         let msg = Message::Get(document.id);
 
-        let raw_document = statemachine.query(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
+        let raw_document = statemachine
+            .query(&encode(&msg, SizeLimit::Infinite).unwrap())
+            .unwrap();
         let get_document: Document = decode(&raw_document).unwrap();
 
         assert_eq!(document, get_document);
@@ -201,7 +207,9 @@ mod tests {
         let document = Document::new(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let msg = Message::Post(document.clone());
 
-        let applied = statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
+        let applied = statemachine
+            .apply(&encode(&msg, SizeLimit::Infinite).unwrap())
+            .unwrap();
 
         let document_applied = decode(applied.as_slice()).unwrap();
 
@@ -221,7 +229,9 @@ mod tests {
         payload.reverse();
         let msg = Message::Put(document.id, document.clone(), payload.clone());
 
-        let applied = statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
+        let applied = statemachine
+            .apply(&encode(&msg, SizeLimit::Infinite).unwrap())
+            .unwrap();
 
         let document_applied: Document = decode(applied.as_slice()).unwrap();
 
@@ -243,7 +253,9 @@ mod tests {
         statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap());
 
         let msg = Message::Get(document.id);
-        statemachine.query(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
+        statemachine
+            .query(&encode(&msg, SizeLimit::Infinite).unwrap())
+            .unwrap();
     }
 
     #[test]
@@ -277,16 +289,23 @@ mod tests {
 
         statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap());
 
-        let document: Document = decode(&statemachine.query(&encode(&Message::Get(document.clone().id), SizeLimit::Infinite).unwrap()).unwrap()).unwrap();
+        let document: Document =
+            decode(&statemachine
+                        .query(&encode(&Message::Get(document.clone().id),
+                                       SizeLimit::Infinite)
+                                        .unwrap())
+                        .unwrap())
+                    .unwrap();
 
         assert_eq!(new_payload, document.payload);
 
         statemachine.revert(&encode(&msg, SizeLimit::Infinite).unwrap());
 
-        let document: Document =
-            decode(&statemachine.query(&encode(&Message::Get(document.id), SizeLimit::Infinite)
-                    .unwrap()
-                ).unwrap())
+        let document: Document = decode(&statemachine
+                                             .query(&encode(&Message::Get(document.id),
+                                                            SizeLimit::Infinite)
+                                                             .unwrap())
+                                             .unwrap())
                 .unwrap();
 
         assert_eq!(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], document.payload);
