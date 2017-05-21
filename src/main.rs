@@ -29,10 +29,11 @@ extern crate base64;
 extern crate lazy_static;
 
 pub mod document;
-pub mod http_handler;
+//pub mod http_handler;
 pub mod handler;
 pub mod config;
 pub mod doclog;
+mod types;
 mod statemachine;
 mod parser;
 mod login;
@@ -41,7 +42,7 @@ use std::net::SocketAddr;
 use docopt::Docopt;
 
 use raft::ServerId;
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 
 use std::fs::File;
 use std::io::Read;
@@ -60,12 +61,13 @@ use handler::Handler;
 use doclog::DocLog;
 
 use raft::auth::hasher::sha256::Sha256Hasher;
-use raft::auth::credentials::SingleCredentials;
+use raft::auth::credentials::Credentials;
+use raft::auth::credentials::BasicCredentials;
 use raft::auth::multi::{MultiAuth, MultiAuthBuilder};
 
 use raft::TimeoutConfiguration;
 
-use http_handler::*;
+//use http_handler::*;
 
 static USAGE: &'static str = "
 A replicated document database.
@@ -136,6 +138,15 @@ impl Args {
         let tid = self.arg_transid.clone().unwrap();
         TransactionId::from(&tid).expect(&format!("{} is not a valid transaction id", tid))
     }
+
+    pub fn get_credentials(&self) -> BasicCredentials{
+        use raft::auth::hasher::Hasher;
+
+        let username = self.arg_username.clone().unwrap();
+        let password = self.arg_password.clone().unwrap();
+
+        BasicCredentials::new::<Sha256Hasher>(&username, &password)
+    }
 }
 
 fn main() {
@@ -149,78 +160,111 @@ fn main() {
     if args.cmd_server {
         server(&args);
     } else {
-        let username = args.arg_username.clone().unwrap();
-        let password = args.arg_password.clone().unwrap();
-        let lid = args.get_lid();
-        let node_addr = args.get_node_addr();
+
+        let mut handler = {
+            let credentials = args.get_credentials();
+            let lid = args.get_lid();
+            let mut node_addr = HashSet::new();
+            node_addr.insert(args.get_node_addr());
+
+            Handler::new(node_addr, lid, credentials)
+        };
 
         if args.cmd_get {
             let id = args.get_doc_id();
 
-            get(&node_addr, id, &username, &password, lid);
+            let document = handler.get(id).unwrap();
 
+            println!("{:?}", document);
         } else if args.cmd_post {
+            let filepath = &args.arg_filepath;
+            let tid = TransactionId::new();
 
-            post(&node_addr,
-                 &args.arg_filepath,
-                 &username,
-                 &password,
-                 TransactionId::new(),
-                 lid);
+            let mut fhandler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
+            let mut buffer: Vec<u8> = Vec::new();
+
+            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+
+            let document = Document::new(buffer);
+
+            let id = handler.post(document, tid).unwrap();
+
+            println!("{}",id);
         } else if args.cmd_remove {
             let id = args.get_doc_id();
+            let tid = TransactionId::new();
 
-            remove(&node_addr, id, &username, &password, TransactionId::new(), lid);
+            match handler.remove(id, tid){
+                Ok(()) => println!("ok"),
+                Err(err) => panic!(err)
+            }
         } else if args.cmd_put {
             let id = args.get_doc_id();
+            let tid = TransactionId::new();
 
-            put(&node_addr,
-                id,
-                &args.arg_filepath,
-                &username,
-                &password,
-                TransactionId::new(),
-                lid);
+            let filepath = &args.arg_filepath;
+
+            let mut fhandler = File::open(filepath).expect(&format!("Unable to open the file{}", filepath));
+            let mut buffer: Vec<u8> = Vec::new();
+
+            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+
+            match handler.put(id, buffer, tid) {
+                Ok(()) => println!("ok"),
+                Err(err) => panic!(err)
+            }
         } else if args.cmd_begintrans {
-            let res =
-                Handler::begin_transaction(&node_addr, &username, &password, TransactionId::new(), lid);
+            let tid = TransactionId::new();
+            let res = handler.begin_transaction(tid);
 
             println!("{}", res.unwrap());
         } else if args.cmd_commit{
             let tid = args.get_trans_id();
-            let res = Handler::commit_transaction(&node_addr, &username, &password, lid, tid);
+
+            let res = handler.commit_transaction(tid);
             println!("{}", res.unwrap());
         } else if args.cmd_rollback {
             let tid = args.get_trans_id();
-            let res = Handler::rollback_transaction(&node_addr, &username, &password, lid,tid);
+
+            let res = handler.rollback_transaction(tid);
 
             println!("{}", res.unwrap());
         } else if args.cmd_transpost {
+            let filepath = &args.arg_filepath;
             let tid = args.get_trans_id();
 
-            post(&node_addr,
-                 &args.arg_filepath,
-                 &username,
-                 &password,
-                 tid,
-                 lid);
+            let mut fhandler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
+            let mut buffer: Vec<u8> = Vec::new();
 
+            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+
+            let document = Document::new(buffer);
+
+            let id = handler.post(document, tid).unwrap();
+
+            println!("{}", id);
         } else if args.cmd_transremove {
             let id = args.get_doc_id();
             let tid = args.get_trans_id();
 
-            remove(&node_addr, id, &username, &password, tid, lid);
+            let res = handler.remove(id, tid).unwrap();
+
+            println!("ok");
         } else if args.cmd_transput {
             let id = args.get_doc_id();
             let tid = args.get_trans_id();
 
-            put(&node_addr,
-                id,
-                &args.arg_filepath,
-                &username,
-                &password,
-                tid,
-                lid);
+            let filepath = &args.arg_filepath;
+
+            let mut fhandler = File::open(filepath).expect(&format!("Unable to open the file{}", filepath));
+            let mut buffer: Vec<u8> = Vec::new();
+
+            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+
+            match handler.put(id, buffer,tid) {
+                Ok(()) => println!("ok"),
+                Err(err) => panic!(err)
+            }
         }
     }
 }
@@ -250,9 +294,9 @@ fn server(args: &Args) {
         let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
         {
             let snap_map = state_machine.get_snapshot_map().unwrap_or_default();
-            let snap_log = state_machine.get_snapshot_log().unwrap_or_default();
+        //    let snap_log = state_machine.get_snapshot_log().unwrap_or_default();
 
-            state_machine.restore_snapshot(snap_map, snap_log);
+            state_machine.restore_snapshot(snap_map);
         }
         let logid = LogId::from(&l.lid).expect(&format!("The logid given was invalid {:?}", l.lid));
         let log = DocLog::new(&Path::new(&l.path), LogId::from(&l.lid).unwrap());
@@ -260,12 +304,12 @@ fn server(args: &Args) {
         println!("Init {:?}", l.lid);
     }
 
-    let mut builder = MultiAuth::<SingleCredentials>::build()
+    let mut builder = MultiAuth::<BasicCredentials>::build()
         .with_community_string(&config.server.community_string);
 
     for &(ref username, ref password) in config.security.get_credentials().iter() {
         builder = builder
-            .add_user_hashed(username, password);
+            .add_user::<Sha256Hasher>(username, password);
     }
 
 
@@ -295,74 +339,10 @@ fn server(args: &Args) {
         let state_machines = server.log_manager.get_state_machines();
         let peers = server.log_manager.get_peers();
 
-        init(config.get_binding_addr(), node_addr, states, state_machines,peers, auth);
+        //init(config.get_binding_addr(), node_addr, states, state_machines,peers, auth);
     }
 
     server.init(&mut event_loop);
 
     event_loop.run(&mut server).unwrap();
-}
-
-fn get(addr: &SocketAddr, doc_id: Uuid, username: &str, password: &str, lid: LogId) {
-    let document = Handler::get(addr, &username, &password, doc_id, lid);
-    println!("{:?}", document);
-}
-
-fn post(addr: &SocketAddr,
-        filepath: &str,
-        username: &str,
-        password: &str,
-        session: TransactionId,
-        lid: LogId) {
-
-    let mut handler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
-    let mut buffer: Vec<u8> = Vec::new();
-
-    handler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
-
-    let document = Document {
-        id: Uuid::new_v4(),
-        payload: buffer,
-        version: 1,
-    };
-
-    let id = match Handler::post(addr, &username, &password, document, session, lid) {
-        Ok(id) => id,
-        Err(err) => panic!(err),
-    };
-
-    println!("{}", id);
-}
-
-fn put(addr: &SocketAddr,
-       doc_id: Uuid,
-       filepath: &str,
-       username: &str,
-       password: &str,
-       session: TransactionId,
-       lid: LogId) {
-
-    let mut handler = File::open(filepath).expect(&format!("Unable to open the file{}", filepath));
-    let mut buffer: Vec<u8> = Vec::new();
-
-    handler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
-
-    match Handler::put(addr, &username, &password, doc_id, buffer, session, lid) {
-        Ok(()) => {
-
-        }
-        Err(err) => panic!(err),
-    }
-}
-
-fn remove(addr: &SocketAddr,
-          doc_id: Uuid,
-          username: &str,
-          password: &str,
-          session: TransactionId,
-          lid: LogId) {
-    match Handler::remove(addr, &username, &password, doc_id, session, lid) {
-        Ok(()) => println!("Ok"),
-        Err(err) => panic!(err),
-    }
 }

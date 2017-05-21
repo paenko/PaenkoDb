@@ -12,6 +12,14 @@ pub struct Document {
 }
 
 impl Document {
+    pub fn new(payload: Vec<u8>) -> Self {
+        Document {
+            id: DocumentId::new_v4(),
+            payload: payload,
+            version: 0,
+        }
+    }
+
     pub fn put(&mut self, new_payload: Vec<u8>) {
         self.payload = new_payload;
 
