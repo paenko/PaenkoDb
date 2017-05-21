@@ -53,6 +53,8 @@ use raft::Server;
 use raft::LogId;
 use raft::TransactionId;
 use raft::state_machine::StateMachine;
+use raft::EventLoop;
+use raft::persistent_log::Log;
 
 use statemachine::DocumentStateMachine;
 use document::*;
@@ -60,6 +62,7 @@ use config::*;
 use handler::Handler;
 use doclog::DocLog;
 
+use raft::auth::Auth;
 use raft::auth::hasher::sha256::Sha256Hasher;
 use raft::auth::credentials::Credentials;
 use raft::auth::credentials::PlainCredentials;
@@ -68,6 +71,9 @@ use raft::auth::multi::{MultiAuth, MultiAuthBuilder};
 use raft::TimeoutConfiguration;
 
 //use http_handler::*;
+
+type DB_CREDENTIAL = PlainCredentials;
+type DB_HASHER = Sha256Hasher;
 
 static USAGE: &'static str = "
 A replicated document database.
@@ -134,23 +140,22 @@ impl Args {
         LogId::from(&self.arg_lid.clone().unwrap()).expect("Given LogId is not valid")
     }
 
-    pub fn get_trans_id(&self) -> TransactionId{
+    pub fn get_trans_id(&self) -> TransactionId {
         let tid = self.arg_transid.clone().unwrap();
         TransactionId::from(&tid).expect(&format!("{} is not a valid transaction id", tid))
     }
 
-    pub fn get_credentials(&self) -> PlainCredentials{
+    pub fn get_credentials(&self) -> DB_CREDENTIAL {
         use raft::auth::hasher::Hasher;
 
         let username = self.arg_username.clone().unwrap();
         let password = self.arg_password.clone().unwrap();
 
-        PlainCredentials::new::<Sha256Hasher>(&username, &password)
+        DB_CREDENTIAL::new::<DB_HASHER>(&username, &password)
     }
 }
 
 fn main() {
-
     env_logger::init().unwrap();
 
     let args: Args = Docopt::new(USAGE)
@@ -160,15 +165,7 @@ fn main() {
     if args.cmd_server {
         server(&args);
     } else {
-
-        let mut handler = {
-            let credentials = args.get_credentials();
-            let lid = args.get_lid();
-            let mut node_addr = HashSet::new();
-            node_addr.insert(args.get_node_addr());
-
-            Handler::new(node_addr, lid, credentials)
-        };
+        let mut handler = new_handler(&args);
 
         if args.cmd_get {
             let id = args.get_doc_id();
@@ -177,14 +174,9 @@ fn main() {
 
             println!("{:?}", document);
         } else if args.cmd_post {
-            let filepath = &args.arg_filepath;
             let tid = TransactionId::new();
 
-            let mut fhandler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
-            let mut buffer: Vec<u8> = Vec::new();
-
-            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
-
+            let buffer = get_bytes(&args.arg_filepath);
             let document = Document::new(buffer);
 
             let id = handler.post(document, tid).unwrap();
@@ -202,17 +194,11 @@ fn main() {
             let id = args.get_doc_id();
             let tid = TransactionId::new();
 
-            let filepath = &args.arg_filepath;
+            let buffer = get_bytes(&args.arg_filepath);
 
-            let mut fhandler = File::open(filepath).expect(&format!("Unable to open the file{}", filepath));
-            let mut buffer: Vec<u8> = Vec::new();
+             handler.put(id, buffer, tid).unwrap();
 
-            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
-
-            match handler.put(id, buffer, tid) {
-                Ok(()) => println!("ok"),
-                Err(err) => panic!(err)
-            }
+             println!("ok");
         } else if args.cmd_begintrans {
             let tid = TransactionId::new();
             let res = handler.begin_transaction(tid);
@@ -230,13 +216,9 @@ fn main() {
 
             println!("{}", res.unwrap());
         } else if args.cmd_transpost {
-            let filepath = &args.arg_filepath;
             let tid = args.get_trans_id();
 
-            let mut fhandler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
-            let mut buffer: Vec<u8> = Vec::new();
-
-            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+            let buffer = get_bytes(&args.arg_filepath);
 
             let document = Document::new(buffer);
 
@@ -254,19 +236,31 @@ fn main() {
             let id = args.get_doc_id();
             let tid = args.get_trans_id();
 
-            let filepath = &args.arg_filepath;
+            let buffer = get_bytes(&args.arg_filepath);
 
-            let mut fhandler = File::open(filepath).expect(&format!("Unable to open the file{}", filepath));
-            let mut buffer: Vec<u8> = Vec::new();
+            handler.put(id, buffer,tid).unwrap();
 
-            fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
-
-            match handler.put(id, buffer,tid) {
-                Ok(()) => println!("ok"),
-                Err(err) => panic!(err)
-            }
+            println!("ok");
         }
     }
+}
+
+fn new_handler(args: &Args) -> Handler<DB_CREDENTIAL> {
+    let credentials = args.get_credentials();
+    let lid = args.get_lid();
+    let mut node_addr = HashSet::new();
+    node_addr.insert(args.get_node_addr());
+
+    Handler::new(node_addr, lid, credentials)
+}
+
+fn get_bytes(filepath: &str) -> Vec<u8>{
+    let mut fhandler = File::open(&filepath).expect(&format!("Unable to open the file{}", filepath));
+    let mut buffer: Vec<u8> = Vec::new();
+
+    fhandler.read_to_end(&mut buffer).expect(&format!("Unable read the file to end {}", filepath));
+
+    buffer
 }
 
 fn server(args: &Args) {
@@ -279,42 +273,9 @@ fn server(args: &Args) {
         _ => panic!("The node address given must be IPv4"),
     };
 
-    let (node_ids, node_addresses) = config.get_nodes();
-
-    let peers = node_ids.iter()
-        .zip(node_addresses.iter())
-        .map(|(&id, addr)| (ServerId::from(id), *addr))
-        .collect::<HashMap<_, _>>();
-
-    let mut logs: Vec<(LogId, DocLog, DocumentStateMachine)> = Vec::new();
-
-    for l in &config.logs {
-        use std::path::Path;
-
-        let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
-        {
-            let snap_map = state_machine.get_snapshot_map().unwrap_or_default();
-        //    let snap_log = state_machine.get_snapshot_log().unwrap_or_default();
-
-            state_machine.restore_snapshot(snap_map);
-        }
-        let logid = LogId::from(&l.lid).expect(&format!("The logid given was invalid {:?}", l.lid));
-        let log = DocLog::new(&Path::new(&l.path), LogId::from(&l.lid).unwrap());
-        logs.push((logid, log, state_machine));
-        println!("Init {:?}", l.lid);
-    }
-
-    let mut builder = MultiAuth::<PlainCredentials>::build()
-        .with_community_string(&config.server.community_string);
-
-    let creds: Vec<(String,String)> = config.clone().credentials.into_iter().map(|cr| (cr.username, cr.password)).collect();
-
-    for &(ref username, ref password) in creds.iter() {
-        builder = builder
-            .add_user::<Sha256Hasher>(&username, &password);
-    }
-
-    let auth = builder.finalize();
+    let peers = setup_peers(&config);
+    let logs = setup_logs(&config);
+    let auth = setup_auth(&config);
 
     let (mut server, mut event_loop) = Server::new(ServerId::from(config.server.node_id),
                                                    server_addr,
@@ -325,16 +286,9 @@ fn server(args: &Args) {
                                                     129 as usize)
         .unwrap();
 
-    {
-        if peers.is_empty() {
-            match config.get_dynamic_peering() {
-                Some((peer_id, peer_addr)) => {
-                    server.peering_request(&mut event_loop, ServerId::from(peer_id), peer_addr).unwrap();
-                }
-                None => panic!("No peers or dynamic peering defined"),
-            }
-        }
-    }
+
+    setup_dynamic_peering(&config, &peers, &mut server, &mut event_loop);
+
     {
         let states = server.log_manager.get_states();
         let state_machines = server.log_manager.get_state_machines();
@@ -346,4 +300,63 @@ fn server(args: &Args) {
     server.init(&mut event_loop);
 
     event_loop.run(&mut server).unwrap();
+}
+
+fn setup_logs(config: &Config) -> Vec<(LogId, DocLog, DocumentStateMachine)> {
+    config.logs.iter().map(|l| {
+        use std::path::Path;
+
+        let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
+        {
+            let snapshot_map = state_machine.get_snapshot_map().unwrap_or_default();
+            state_machine.restore_snapshot(snapshot_map).unwrap();
+        }
+
+        let logid = LogId::from(&l.lid).expect(&format!("The logid given was invalid {:?}", l.lid));
+        let log = DocLog::new(&Path::new(&l.path), LogId::from(&l.lid).unwrap());
+
+        println!("Init {:?}", l.lid);
+
+        (logid, log, state_machine)
+
+    }).collect()
+}
+
+fn setup_peers(config: &Config) -> HashMap<ServerId, SocketAddr> {
+    let (node_ids, node_addresses) = config.get_nodes();
+
+    node_ids.iter()
+        .zip(node_addresses.iter())
+        .map(|(&id, addr)| (ServerId::from(id), *addr))
+        .collect::<HashMap<_, _>>()
+}
+
+fn setup_auth(config: &Config) -> MultiAuth<DB_CREDENTIAL> {
+    let mut builder = MultiAuth::<DB_CREDENTIAL>::build()
+        .with_community_string(&config.server.community_string);
+
+    let creds: Vec<(String,String)> = config.clone().credentials.into_iter().map(|cr| (cr.username, cr.password)).collect();
+
+    for &(ref username, ref password) in creds.iter() {
+        builder = builder
+            .add_user::<DB_HASHER>(&username, &password);
+    }
+
+    let auth = builder.finalize();
+
+    auth
+}
+
+fn setup_dynamic_peering<L, M, A>(config: &Config, peers: &HashMap<ServerId, SocketAddr>, server: &mut Server<L, M, A>, event_loop: &mut EventLoop<Server<L,M,A>>)
+    where L: Log,
+      M: StateMachine,
+      A: Auth {
+    if peers.is_empty() {
+        match config.get_dynamic_peering() {
+            Some((peer_id, peer_addr)) => {
+                server.peering_request(event_loop, ServerId::from(peer_id), peer_addr).unwrap();
+            }
+            None => panic!("No peers or dynamic peering defined"),
+        }
+    }
 }
