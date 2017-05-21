@@ -14,13 +14,13 @@ use std::path::{Path, PathBuf};
 
 use types::Message;
 use document::DocumentId;
+use raft::state_machine::StateMachineError;
 use std::collections::HashMap;
 
 #[derive(Debug,Clone)]
 pub struct DocumentStateMachine {
     map: HashMap<DocumentId, Document>,
     path: PathBuf,
-    transaction_offset: usize,
 }
 
 impl DocumentStateMachine {
@@ -29,7 +29,6 @@ impl DocumentStateMachine {
         let s = DocumentStateMachine {
             path: path.to_path_buf(),
             map: HashMap::new(),
-            transaction_offset: 0,
         };
 
         if !s.check_if_volume_exists() {
@@ -87,87 +86,73 @@ impl DocumentStateMachine {
 }
 
 impl state_machine::StateMachine for DocumentStateMachine {
-    fn apply(&mut self, new_value: &[u8]) -> Vec<u8> {
-        let message = decode(&new_value).unwrap();
+    fn apply(&mut self, new_value: &[u8]) -> Result<Vec<u8>, StateMachineError> {
+        let message = decode(&new_value).map_err(StateMachineError::Deserialization)?;
 
         let response = match message {
-            Message::Get(_) => self.query(new_value), // delegate to query when propose
+            Message::Get(_) => self.query(new_value)?, // delegate to query when propose
             Message::Post(document) => self.post(document),
             Message::Remove(document) => self.remove(document.id),
             Message::Put(id, _, new_payload) => self.put(id, new_payload),
         };
 
-        self.snapshot();
+        self.snapshot()?;
 
-        response
+        Ok(response)
     }
 
-    /// TODO add return
-    fn revert(&mut self, command: &[u8]) {
-        let message = decode(&command).unwrap();
+    fn revert(&mut self, command: &[u8]) -> Result<(), StateMachineError> {
+        let message = decode(&command).map_err(StateMachineError::Deserialization)?;
 
         let response = match message {
-            Message::Get(_) => panic!("Cannot skip get"),
+            Message::Get(_) => return Err(StateMachineError::Other("Cannot skip get".to_owned())),
             Message::Post(document) => self.remove(document.id),
             Message::Remove(document) => self.post(document),
             Message::Put(id, document, _) => self.put(id, document.payload),
         };
 
-        self.snapshot();
+        self.snapshot()?;
+
+        Ok(())
     }
 
-    /// TODO change return
-    fn query(&self, query: &[u8]) -> Vec<u8> {
-        let message = decode(&query).unwrap();
+    fn query(&self, query: &[u8]) -> Result<Vec<u8>, StateMachineError> {
+        let message = decode(&query).map_err(StateMachineError::Deserialization)?;
 
         let response = match message {
             Message::Get(id) => {
                 let doc = match self.map.get(&id) {
                     Some(doc) => doc,
                     None => {
-                        println!("Cannot find document");
-                        return Vec::new();
+                        return Err(StateMachineError::NotFound);
                     }
                 };
 
-                encode(&doc, SizeLimit::Infinite).unwrap()
+                encode(&doc, SizeLimit::Infinite).map_err(StateMachineError::Serialization)
             }
-            _ => {
-                let response = encode(&"Wrong usage of .query()", SizeLimit::Infinite);
-
-                response.unwrap()
-            }
+            _ => return Err(StateMachineError::Other("Wrong usage of .query".to_owned())),
         };
 
         response
     }
 
-    fn snapshot(&self) -> Vec<u8> {
-        let mut file = OpenOptions::new()
-            .read(true)
+    fn snapshot(&self) -> Result<Vec<u8>, StateMachineError> {
+        let mut file = OpenOptions::new().read(true)
             .write(true)
             .create(true)
             .open(&format!("{}/snapshot_map", self.path.to_str().unwrap()))
-            .expect("Unable to create snapshot file");
+            .map_err(StateMachineError::Io)?;
 
-        let map = encode(&self.map, SizeLimit::Infinite).unwrap();
-        file.write_all(&map)
-            .expect("Unable to write to the snapshot file");
+        let map = encode(&self.map, SizeLimit::Infinite).map_err(StateMachineError::Serialization)?;
+        file.write_all(&map).map_err(StateMachineError::Io)?;
 
-        map
+        Ok(map)
     }
 
-    fn restore_snapshot(&mut self, snap_map: Vec<u8>) {
-        let map: HashMap<DocumentId, Document> = match decode(&snap_map) {
-            Ok(m) => m,
-            Err(_) => HashMap::new(),
-        };
+    fn restore_snapshot(&mut self, snap_map: Vec<u8>) -> Result<(), StateMachineError> {
+        let map: HashMap<DocumentId, Document> = decode(&snap_map).unwrap_or(HashMap::new());
 
-        self.map = map;
-    }
-
-    fn rollback(&mut self) {
-        self.transaction_offset = 0;
+        Ok(self.map = map)
     }
 }
 
@@ -204,7 +189,7 @@ mod tests {
 
         let msg = Message::Get(document.id);
 
-        let raw_document = statemachine.query(&encode(&msg, SizeLimit::Infinite).unwrap());
+        let raw_document = statemachine.query(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
         let get_document: Document = decode(&raw_document).unwrap();
 
         assert_eq!(document, get_document);
@@ -216,7 +201,7 @@ mod tests {
         let document = Document::new(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let msg = Message::Post(document.clone());
 
-        let applied = statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap());
+        let applied = statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
 
         let document_applied = decode(applied.as_slice()).unwrap();
 
@@ -236,7 +221,7 @@ mod tests {
         payload.reverse();
         let msg = Message::Put(document.id, document.clone(), payload.clone());
 
-        let applied = statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap());
+        let applied = statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
 
         let document_applied: Document = decode(applied.as_slice()).unwrap();
 
@@ -245,6 +230,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "NotFound")]
     fn test_remove() {
         let (mut statemachine, dir) = setup();
         let document = Document::new(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
@@ -257,9 +243,7 @@ mod tests {
         statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap());
 
         let msg = Message::Get(document.id);
-        let raw_document = statemachine.query(&encode(&msg, SizeLimit::Infinite).unwrap());
-
-        assert_eq!(raw_document, Vec::<u8>::new()); //because empty means Vec::new
+        statemachine.query(&encode(&msg, SizeLimit::Infinite).unwrap()).unwrap();
     }
 
     #[test]
@@ -293,13 +277,17 @@ mod tests {
 
         statemachine.apply(&encode(&msg, SizeLimit::Infinite).unwrap());
 
-        let document: Document = decode(&statemachine.query(&encode(&Message::Get(document.clone().id), SizeLimit::Infinite).unwrap())).unwrap();
+        let document: Document = decode(&statemachine.query(&encode(&Message::Get(document.clone().id), SizeLimit::Infinite).unwrap()).unwrap()).unwrap();
 
         assert_eq!(new_payload, document.payload);
 
         statemachine.revert(&encode(&msg, SizeLimit::Infinite).unwrap());
 
-        let document: Document = decode(&statemachine.query(&encode(&Message::Get(document.id), SizeLimit::Infinite).unwrap())).unwrap();
+        let document: Document =
+            decode(&statemachine.query(&encode(&Message::Get(document.id), SizeLimit::Infinite)
+                    .unwrap()
+                ).unwrap())
+                .unwrap();
 
         assert_eq!(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], document.payload);
     }

@@ -16,7 +16,7 @@ use std::str::from_utf8;
 use std::collections::VecDeque;
 
 use raft::auth::credentials::Credentials;
-use raft::auth::credentials::SingleCredentials;
+use raft::auth::credentials::BasicCredentials;
 use raft::auth::simple::SimpleAuth;
 use types::Message;
 use document::DocumentId;

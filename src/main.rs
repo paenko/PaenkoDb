@@ -62,7 +62,7 @@ use doclog::DocLog;
 
 use raft::auth::hasher::sha256::Sha256Hasher;
 use raft::auth::credentials::Credentials;
-use raft::auth::credentials::SingleCredentials;
+use raft::auth::credentials::BasicCredentials;
 use raft::auth::multi::{MultiAuth, MultiAuthBuilder};
 
 use raft::TimeoutConfiguration;
@@ -139,13 +139,13 @@ impl Args {
         TransactionId::from(&tid).expect(&format!("{} is not a valid transaction id", tid))
     }
 
-    pub fn get_credentials(&self) -> SingleCredentials{
+    pub fn get_credentials(&self) -> BasicCredentials{
         use raft::auth::hasher::Hasher;
 
         let username = self.arg_username.clone().unwrap();
         let password = self.arg_password.clone().unwrap();
 
-        SingleCredentials::new(&username, &Sha256Hasher::hash(&password))
+        BasicCredentials::new::<Sha256Hasher>(&username, &password)
     }
 }
 
@@ -304,12 +304,12 @@ fn server(args: &Args) {
         println!("Init {:?}", l.lid);
     }
 
-    let mut builder = MultiAuth::<SingleCredentials>::build()
+    let mut builder = MultiAuth::<BasicCredentials>::build()
         .with_community_string(&config.server.community_string);
 
     for &(ref username, ref password) in config.security.get_credentials().iter() {
         builder = builder
-            .add_user_hashed(username, password);
+            .add_user::<Sha256Hasher>(username, password);
     }
 
 
