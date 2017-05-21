@@ -17,10 +17,9 @@ pub struct Config {
     pub peers: Vec<PeerConfig>,
     pub logs: Vec<LogConfig>,
     pub dynamic_peer: Option<DynamicPeer>,
-    pub security: SecurityConfig,
+    pub credentials: Vec<CredentialConfig>,
 }
 
-/// TODO Move community_string to Security
 #[derive(Debug,Deserialize,Clone)]
 /// The specific server configuration
 pub struct ServerConfig {
@@ -49,12 +48,6 @@ pub struct PeerConfig {
 pub struct LogConfig {
     pub path: String,
     pub lid: String,
-}
-
-#[derive(Debug,Deserialize,Clone)]
-/// Configuration for Client-Security
-pub struct SecurityConfig {
-    pub credentials: Vec<CredentialConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -132,20 +125,5 @@ impl PeerConfig {
 impl LogConfig {
     pub fn get_log_id(&self) -> Uuid {
         self.lid.parse().expect("LogId of a log is invalid")
-    }
-}
-
-impl SecurityConfig {
-    pub fn get_credentials(&self) -> Vec<(Username, Password)> {
-        self.credentials
-            .iter()
-            .map(|cred| cred.get_pair())
-            .collect()
-    }
-}
-
-impl CredentialConfig {
-    pub fn get_pair(&self) -> (Username, Password) {
-        (self.username.clone(), self.password.clone())
     }
 }

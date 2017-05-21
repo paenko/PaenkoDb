@@ -307,11 +307,12 @@ fn server(args: &Args) {
     let mut builder = MultiAuth::<PlainCredentials>::build()
         .with_community_string(&config.server.community_string);
 
-    for &(ref username, ref password) in config.security.get_credentials().iter() {
-        builder = builder
-            .add_user::<Sha256Hasher>(username, password);
-    }
+    let creds: Vec<(String,String)> = config.clone().credentials.into_iter().map(|cr| (cr.username, cr.password)).collect();
 
+    for &(ref username, ref password) in creds.iter() {
+        builder = builder
+            .add_user::<Sha256Hasher>(&username, &password);
+    }
 
     let auth = builder.finalize();
 
