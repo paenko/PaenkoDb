@@ -2,41 +2,18 @@
 #![feature(custom_derive)]
 #![feature(drop_types_in_const)]
 
+extern crate paenkodb;
 extern crate raft;
+extern crate rustc_serialize;
+extern crate uuid;
 
 extern crate log;
 extern crate env_logger;
 
-#[macro_use]
-extern crate iron;
-extern crate router;
-extern crate params;
-extern crate bodyparser;
-extern crate iron_sessionstorage;
-
 extern crate docopt;
-extern crate bincode;
-extern crate rustc_serialize;
-extern crate serde;
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
-extern crate uuid;
-extern crate toml;
-extern crate base64;
 
 #[macro_use]
 extern crate lazy_static;
-
-pub mod document;
-//pub mod http_handler;
-pub mod handler;
-pub mod config;
-pub mod doclog;
-mod types;
-mod statemachine;
-mod parser;
-mod login;
 
 use std::net::SocketAddr;
 use docopt::Docopt;
@@ -56,11 +33,11 @@ use raft::state_machine::StateMachine;
 use raft::EventLoop;
 use raft::persistent_log::Log;
 
-use statemachine::DocumentStateMachine;
-use document::*;
-use config::*;
-use handler::Handler;
-use doclog::DocLog;
+use paenkodb::statemachine::DocumentStateMachine;
+use paenkodb::document::*;
+use paenkodb::config::*;
+use paenkodb::handler::Handler;
+use paenkodb::doclog::DocLog;
 
 use raft::auth::Auth;
 use raft::auth::hasher::sha256::Sha256Hasher;

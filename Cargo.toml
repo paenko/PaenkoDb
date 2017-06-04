@@ -3,6 +3,10 @@ name = "paenkodb"
 version = "0.2.0"
 authors = ["kper <kevp.per@gmail.com>"]
 
+[[bin]]
+name = "paenkodb"
+doc = false
+
 [dependencies]
 raft ={ git="https://github.com/paenko/raft-rs", branch="dev"}
 env_logger = "*"
