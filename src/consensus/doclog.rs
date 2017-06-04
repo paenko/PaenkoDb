@@ -16,6 +16,7 @@ use raft::LogId;
 
 #[derive(Clone,Debug)]
 pub struct DocLog {
+    ///TODO remove this
     entries: Vec<(Term, Vec<u8>)>,
     logid: LogId,
     path: PathBuf,

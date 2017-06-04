@@ -1,4 +1,3 @@
-use document::*;
 use raft::state_machine;
 
 use bincode::serde::serialize as encode;
@@ -13,7 +12,7 @@ use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
 
 use types::Message;
-use document::DocumentId;
+use app::document::*;
 use raft::state_machine::StateMachineError;
 use std::collections::HashMap;
 
@@ -168,7 +167,7 @@ mod tests {
     use super::*;
     use self::tempdir::TempDir;
     use types::Message;
-    use document::Document;
+    use app::document::Document;
 
     use bincode::serde::serialize as encode;
     use bincode::serde::deserialize as decode;

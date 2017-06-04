@@ -1,4 +1,4 @@
-use document::{DocumentId, Document};
+use app::document::{DocumentId, Document};
 
 #[derive(Debug,Serialize,Deserialize)]
 pub enum Message {

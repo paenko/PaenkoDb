@@ -1,4 +1,4 @@
-use document::*;
+use app::document::*;
 use std::net::SocketAddr;
 use uuid::Uuid;
 use raft::Result;
@@ -19,7 +19,6 @@ use raft::auth::credentials::Credentials;
 use raft::auth::credentials::BasicCredentials;
 use raft::auth::simple::SimpleAuth;
 use types::Message;
-use document::DocumentId;
 
 pub struct Handler<C: Credentials>
     where C: Credentials

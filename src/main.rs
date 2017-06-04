@@ -6,51 +6,33 @@ extern crate paenkodb;
 extern crate raft;
 extern crate rustc_serialize;
 extern crate uuid;
-
 extern crate log;
 extern crate env_logger;
-
 extern crate docopt;
-
-#[macro_use]
-extern crate lazy_static;
 
 use std::net::SocketAddr;
 use docopt::Docopt;
 
-use raft::ServerId;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet};
 
 use std::fs::File;
 use std::io::Read;
 
 use uuid::Uuid;
 
-use raft::Server;
 use raft::LogId;
 use raft::TransactionId;
-use raft::state_machine::StateMachine;
-use raft::EventLoop;
-use raft::persistent_log::Log;
+use paenkodb::app::document::*;
 
-use paenkodb::statemachine::DocumentStateMachine;
-use paenkodb::document::*;
-use paenkodb::config::*;
-use paenkodb::handler::Handler;
-use paenkodb::doclog::DocLog;
-
-use raft::auth::Auth;
-use raft::auth::hasher::sha256::Sha256Hasher;
 use raft::auth::credentials::Credentials;
-use raft::auth::credentials::PlainCredentials;
-use raft::auth::multi::{MultiAuth, MultiAuthBuilder};
 
-use raft::TimeoutConfiguration;
+use paenkodb::app::raft_server::{ServerManager, DB_HASHER, DB_CREDENTIAL};
+use paenkodb::app::config::Config;
+use paenkodb::app::handler::Handler;
 
 //use http_handler::*;
 
-type DB_CREDENTIAL = PlainCredentials;
-type DB_HASHER = Sha256Hasher;
+
 
 static USAGE: &'static str = "
 A replicated document database.
@@ -251,112 +233,7 @@ fn server(args: &Args) {
     let arg_config_path = args.clone().arg_config_path.unwrap();
     let config_path = arg_config_path.as_str();
     let config = Config::init(&config_path).expect("Config is invalid");
-    let server_addr = config.get_node_addr();
-    let node_addr = match server_addr {
-        SocketAddr::V4(v) => v,
-        _ => panic!("The node address given must be IPv4"),
-    };
 
-    let peers = setup_peers(&config);
-    let logs = setup_logs(&config);
-    let auth = setup_auth(&config);
-
-    let (mut server, mut event_loop) = Server::new(ServerId::from(config.server.node_id),
-                                                   server_addr,
-                                                   peers.clone(),
-                                                   logs,
-                                                   auth.clone(),
-                                                   TimeoutConfiguration::default(),
-                                                   129 as usize)
-            .unwrap();
-
-
-    setup_dynamic_peering(&config, &peers, &mut server, &mut event_loop);
-
-    {
-        let states = server.log_manager.get_states();
-        let state_machines = server.log_manager.get_state_machines();
-        let peers = server.log_manager.get_peers();
-
-        //init(config.get_binding_addr(), node_addr, states, state_machines,peers, auth);
-    }
-
-    server.init(&mut event_loop);
-
-    event_loop.run(&mut server).unwrap();
-}
-
-fn setup_logs(config: &Config) -> Vec<(LogId, DocLog, DocumentStateMachine)> {
-    config
-        .logs
-        .iter()
-        .map(|l| {
-            use std::path::Path;
-
-            let mut state_machine = DocumentStateMachine::new(&Path::new(&l.path));
-            {
-                let snapshot_map = state_machine.get_snapshot_map().unwrap_or_default();
-                state_machine.restore_snapshot(snapshot_map).unwrap();
-            }
-
-            let logid = LogId::from(&l.lid)
-                .expect(&format!("The logid given was invalid {:?}", l.lid));
-            let log = DocLog::new(&Path::new(&l.path), LogId::from(&l.lid).unwrap());
-
-            println!("Init {:?}", l.lid);
-
-            (logid, log, state_machine)
-
-        })
-        .collect()
-}
-
-fn setup_peers(config: &Config) -> HashMap<ServerId, SocketAddr> {
-    let (node_ids, node_addresses) = config.get_nodes();
-
-    node_ids
-        .iter()
-        .zip(node_addresses.iter())
-        .map(|(&id, addr)| (ServerId::from(id), *addr))
-        .collect::<HashMap<_, _>>()
-}
-
-fn setup_auth(config: &Config) -> MultiAuth<DB_CREDENTIAL> {
-    let mut builder = MultiAuth::<DB_CREDENTIAL>::build()
-        .with_community_string(&config.server.community_string);
-
-    let creds: Vec<(String, String)> = config
-        .clone()
-        .credentials
-        .into_iter()
-        .map(|cr| (cr.username, cr.password))
-        .collect();
-
-    for &(ref username, ref password) in creds.iter() {
-        builder = builder.add_user::<DB_HASHER>(&username, &password);
-    }
-
-    let auth = builder.finalize();
-
-    auth
-}
-
-fn setup_dynamic_peering<L, M, A>(config: &Config,
-                                  peers: &HashMap<ServerId, SocketAddr>,
-                                  server: &mut Server<L, M, A>,
-                                  event_loop: &mut EventLoop<Server<L, M, A>>)
-    where L: Log,
-          M: StateMachine,
-          A: Auth
-{
-    if peers.is_empty() {
-        match config.get_dynamic_peering() {
-            Some((peer_id, peer_addr)) => {
-                server
-                    .peering_request(event_loop, ServerId::from(peer_id), peer_addr)
-                    .unwrap();
-            }
-            None => panic!("No peers or dynamic peering defined"),
-        }
-    }
+    let mut manager = ServerManager::configure(config);
+    manager.run();
 }

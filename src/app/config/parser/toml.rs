@@ -1,6 +1,6 @@
 use toml::{decode, DecodeError};
-use parser::Parser as tParser;
-use config::Config;
+use app::config::parser::Parser as tParser;
+use app::config::Config;
 
 pub struct Parser;
 

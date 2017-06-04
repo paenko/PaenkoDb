@@ -1,4 +1,4 @@
-use config::Config;
+use app::config::Config;
 use std::error;
 
 pub mod toml;

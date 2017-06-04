@@ -14,13 +14,11 @@ extern crate router;
 extern crate params;
 extern crate bodyparser;
 extern crate iron_sessionstorage;
+#[macro_use]
+extern crate lazy_static;
 
-pub mod document;
 //pub mod http_handler;
-pub mod handler;
-pub mod config;
-pub mod doclog;
+pub mod consensus;
 mod types;
-pub mod statemachine;
-mod parser;
 pub mod login;
+pub mod app;

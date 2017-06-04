@@ -2,10 +2,12 @@ use std::fs::File;
 use std::io::Read;
 use std::net::{SocketAddr, ToSocketAddrs};
 use uuid::Uuid;
-use parser::Parser;
-use parser::toml::Parser as tParser;
+use self::parser::Parser;
+use self::parser::toml::Parser as tParser;
 use toml::DecodeError;
 use raft::ServerId;
+
+mod parser;
 
 type Username = String;
 type Password = String;
